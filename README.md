@@ -27,6 +27,8 @@ Kakao includes the following notable applications:
   - nano
   - tinyscheme
   - micropython
+  - links (text-based web browser)
+  - fbv (image viewer)
   - lesen (a script for reading books)
   - busybox (ls, cp, grep, awk, sed, etc.)
 

@@ -8,7 +8,6 @@ config BR2_PACKAGE_VEXRISCV_AES
 source "$BR2_EXTERNAL_LITEX_VEXRISCV_PATH/package/tinyscheme/Config.in"
 
 config BR2_PACKAGE_TINYSCHEME
-	bool "VexRiscv AES custom instruction"
+	bool "TinyScheme"
 	help
 	  Enable TinyScheme
-

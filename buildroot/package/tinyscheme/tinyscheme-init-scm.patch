@@ -1,0 +1,13 @@
+Index: tinyscheme-1.41/scheme.c
+===================================================================
+--- tinyscheme-1.41.orig/scheme.c
++++ tinyscheme-1.41/scheme.c
+@@ -101,7 +101,7 @@ static const char *strlwr(char *s) {
+ #endif
+ 
+ #ifndef InitFile
+-# define InitFile "init.scm"
++# define InitFile "/usr/lib/tinyscheme/init.scm"
+ #endif
+ 
+ #ifndef FIRST_CELLSEGS

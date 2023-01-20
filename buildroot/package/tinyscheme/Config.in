@@ -1,0 +1,8 @@
+config BR2_PACKAGE_TINYSCHEME
+    bool "tinyscheme"
+    help
+      TinyScheme is a lightweight Scheme interpreter that implements
+      as large a subset of R5RS as was possible without getting very
+      large and complicated
+
+      http://tinyscheme.sourceforge.net/

@@ -17,7 +17,9 @@ Kakao can be configured to either:
   - [Konfekt](https://machdyne.com/product/konfekt-computer)
   - [Noir](https://machdyne.com/product/noir-computer)
 
-Note: There is a [reward](https://machdyne.com/bounties/) for adding Linux support to our ICE40-based FPGA computers.
+Kakao may also work with other boards supported by [linux-on-litex-vexriscv](https://github.com/litex-hub/linux-on-litex-vexriscv).
+
+Note: There is a [reward](https://machdyne.com/bounties/) for adding Linux support to our ICE40HX-based FPGA computers.
 
 ## Applications
 
@@ -68,7 +70,9 @@ $ sudo mkfs.ext2 /dev/sdX3
 $ sudo mkfs.ext2 /dev/sdX4
 ```
 
-### Building Kakao Linux
+### Optional: Building Kakao Linux
+
+The latest Kakao images are provided in this repo, but if you want to build the system from source you can follow these steps:
 
 ```
 $ git clone http://github.com/machdyne/kakao
@@ -78,7 +82,19 @@ $ make BR2_EXTERNAL=../kakao/buildroot/ kakao_defconfig
 $ make
 ```
 
-Copy the `Image` and `rootfs.cpio` files from output/images to the boot partition of the MicroSD card.
+This will produce the Linux kernel image and rootfs archive in the `output/images` directory.
+
+### Installing Kakao Linux
+
+Copy the `Image` and `rootfs.cpio` files to the boot partition of the MicroSD card, in addition to the following files:
+
+  - boot.json
+  - opensbi.bin
+  - the DTB file for your board (i.e. konfekt.dtb)
+
+Those files can be in the `images/linux` directory of the repo for your board.
+
+Finally, make sure the latest gateware is installed by following the instructions in the repo for your board.
 
 ### Optional: Mount rootfs from the MicroSD card instead of using a ramdisk.
 
@@ -118,4 +134,8 @@ $ eject /dev/sdX2
 
 Kakao is a partial fork of [linux-on-litex-vexriscv](https://github.com/litex-hub/linux-on-litex-vexriscv) and this repo is released under the BSD 2-Clause License, with the following exception(s):
 
+The Linux kernel is released under the GNU General Public License version 2 (GPL-2.0).
+
 The tinyscheme buildroot package is from [buildroot-a13-olinuxino](https://github.com/m039/buildroot-a13-olinuxino) which uses the GPL-2.0 license. TinyScheme itself is licensed under a BSD-style license.
+
+Individual buildroot packages are released under various licenses.

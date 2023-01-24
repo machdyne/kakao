@@ -70,6 +70,18 @@ $ sudo mkfs.ext2 /dev/sdX3
 $ sudo mkfs.ext2 /dev/sdX4
 ```
 
+### Installing Kakao Linux
+
+Copy the `Image` and `rootfs.cpio` files to the boot partition of the MicroSD card, in addition to the following files:
+
+  - boot.json
+  - opensbi.bin
+  - the DTB file for your board (i.e. konfekt.dtb)
+
+Those files can found be in the `images/linux` directory of the repo for your board.
+
+Finally, make sure the latest gateware is installed by following the instructions in the repo for your board.
+
 ### Optional: Building Kakao Linux
 
 The latest Kakao images are provided in this repo, but if you want to build the system from source you can follow these steps:
@@ -83,18 +95,6 @@ $ make
 ```
 
 This will produce the Linux kernel image and rootfs archive in the `output/images` directory.
-
-### Installing Kakao Linux
-
-Copy the `Image` and `rootfs.cpio` files to the boot partition of the MicroSD card, in addition to the following files:
-
-  - boot.json
-  - opensbi.bin
-  - the DTB file for your board (i.e. konfekt.dtb)
-
-Those files can be in the `images/linux` directory of the repo for your board.
-
-Finally, make sure the latest gateware is installed by following the instructions in the repo for your board.
 
 ### Optional: Mount rootfs from the MicroSD card instead of using a ramdisk.
 

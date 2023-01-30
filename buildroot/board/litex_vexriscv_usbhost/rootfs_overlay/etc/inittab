@@ -29,7 +29,7 @@ null::sysinit:/bin/ln -sf /proc/self/fd/2 /dev/stderr
 ::sysinit:/etc/init.d/rcS
 
 # Put a getty on the serial port
-console::respawn:/sbin/getty -L  console 0 vt100 # GENERIC_SERIAL
+console::respawn:/sbin/getty -L console 0 vt100 # GENERIC_SERIAL
 
 # Put a getty on the current virtual terminal
 ::respawn:/sbin/getty -L 115200 tty0
@@ -38,6 +38,8 @@ console::respawn:/sbin/getty -L  console 0 vt100 # GENERIC_SERIAL
 #::ctrlaltdel:/sbin/reboot
 
 # Stuff to do before rebooting
+::shutdown:/bin/echo Shutting down, please wait ... > /dev/tty0
 ::shutdown:/etc/init.d/rcK
 ::shutdown:/sbin/swapoff -a
 ::shutdown:/bin/umount -a -r
+::shutdown:/bin/echo The system is now halted and safe to turn off. > /dev/tty0

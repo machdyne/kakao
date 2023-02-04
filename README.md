@@ -16,6 +16,7 @@ Kakao can be configured to either:
   - [Schoko](https://machdyne.com/product/schoko-computer)
   - [Konfekt](https://machdyne.com/product/konfekt-computer)
   - [Noir](https://machdyne.com/product/noir-computer)
+  - [Kopflos](https://machdyne.com/product/kopflos-computer)
 
 Kakao may also work with other boards supported by [linux-on-litex-vexriscv](https://github.com/litex-hub/linux-on-litex-vexriscv).
 

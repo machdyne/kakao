@@ -1,0 +1,43 @@
+#!/bin/ash
+
+ARKDIR="/opt/ark"
+READER="lesen"
+BROWSER="links"
+
+if [ "$1" = "browse" ] || [ "$1" = "list" ]; then
+
+	if [ "$2" = "wikipedia" ] || [ "$2" == "wp" ]; then
+		grep -ni "" $ARKDIR/wikipedia/articles.lst | less
+	elif [ "$2" = "gutenberg" ] || [ "$2" = "pg" ]; then
+		grep -ni "" $ARKDIR/gutenberg/cdrom/pgcdrom.lst | less
+	fi
+
+elif [ "$1" = "search" ]; then
+
+	if [ "$2" = "wikipedia" ] || [ "$2" == "wp" ]; then
+		grep -ni "$3" $ARKDIR/wikipedia/articles.lst
+	elif [ "$2" = "gutenberg" ] || [ "$2" = "pg" ]; then
+		grep -ni "$3" $ARKDIR/gutenberg/cdrom/pgcdrom.lst
+	fi
+
+elif [ "$1" = "read" ]; then
+
+	if [ "$2" = "wikipedia" ] || [ "$2" == "wp" ]; then
+		FN=`sed "$3!d;s/ .*//g" $ARKDIR/wikipedia/articles.lst`
+		WFN="$ARKDIR/wikipedia/$FN"
+		$BROWSER $WFN
+	elif [ "$2" = "gutenberg" ] || [ "$2" = "pg" ]; then
+		FN=`sed "$3!d;s/ .*//g" $ARKDIR/gutenberg/cdrom/pgcdrom.lst`
+		WFN="$ARKDIR/gutenberg/cdrom/$FN"
+		$READER $WFN
+	fi
+
+else
+
+	echo "ark help:"
+	echo
+	echo "ark browse <wp|pg>"
+	echo "ark search <wp|pg> <keyword>"
+	echo "ark read <wp|pg> <id>"
+
+fi

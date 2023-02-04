@@ -49,10 +49,10 @@ Example partition layout for a 32GB MicroSD card:
 | ------------| ---- | ----------- | ------- | ---- | -- |
 | 1 | 512MB | - | boot partition | FAT32 (LBA) | 0x0c |
 | 2 | 4GB | / | rootfs or additional applications | ext2 | 0x83 |
-| 3 | 24GB | /home | user data | ext2 | 0x83 |
-| 4 | 1GB | /opt/ark | read-only data | ext2 | 0x83 |
+| 3 | 20GB | /home | user data | ext2 | 0x83 |
+| 4 | 4GB | /opt/ark | read-only data | ext2 | 0x83 |
 
-Note: The 4th partition is mounted read-only and intended for our soon-to-be-released information distribution which contains public domain books and other useful data for offline computers.
+Note: The 4th partition is mounted read-only and intended for the [Ark](https://github.com/machdyne/ark) information distribution which contains public domain books and other useful data for offline computers.
 
 #### Creating partitions
 

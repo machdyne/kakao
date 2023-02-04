@@ -34,6 +34,7 @@ Kakao includes the following notable applications:
   - minicom
   - links (text-based web browser)
   - fbv (image viewer)
+  - ark (a script for searching and reading offline information)
   - lesen (a script for reading books)
   - busybox (ls, cp, grep, awk, sed, etc.)
 

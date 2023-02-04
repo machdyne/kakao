@@ -43,7 +43,7 @@ Kakao includes the following notable applications:
 
 ### Preparing a MicroSD card
 
-At least a 4GB MicroSD card is recommended. It is also recommended to create all 4 partitions even if they're not going to be used immediately.
+At least a 8GB MicroSD card is recommended. It is also recommended to create all 4 partitions even if they're not going to be used immediately.
 
 Example partition layout for a 32GB MicroSD card:
 

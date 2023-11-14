@@ -20,8 +20,6 @@ Kakao can be configured to either:
 
 Kakao may also work with other boards supported by [linux-on-litex-vexriscv](https://github.com/litex-hub/linux-on-litex-vexriscv).
 
-Note: There is a [reward](https://machdyne.com/bounties/) for adding Linux support to our ICE40HX-based FPGA computers.
-
 ## Applications
 
 Kakao includes the following notable applications:

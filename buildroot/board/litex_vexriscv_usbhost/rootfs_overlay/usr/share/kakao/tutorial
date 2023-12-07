@@ -1,0 +1,101 @@
+INTRODUCTION
+============
+
+Hallo! Welcome to the Kakao Linux tutorial.
+
+You can navigate the tutorial using the up and down arrow keys or the
+page up and page down keys.
+
+You can press the 'q' key at any time to exit the tutorial.
+
+This is a very basic tutorial designed to be useful to users with any level
+of experience using Linux, or computers in general.
+
+After exiting the tutorial, you can enter commands at the command prompt,
+which is displayed as '$'.
+
+BASICS
+======
+
+List files in the current directory:
+
+ $ ls
+
+Print the name of the current directory:
+
+ $ pwd
+
+Make a directory:
+
+ $ mkdir mydir
+
+Change to a different directory:
+
+ $ cd mydir
+
+Change to the parent directory:
+
+ $ cd ..
+
+Create an empty file:
+
+ $ touch myfile
+
+Remove a file:
+
+ $ rm myfile
+
+TEXT EDITING
+============
+
+Kakao provides multiple options for editing text.
+
+ NANO
+ ----
+
+ $ nano
+
+ After starting nano, press CTRL-G for help.
+
+ To edit an existing file, type the filename after the command:
+
+ $ nano myfile.txt
+
+ VI
+ --
+
+ $ vi
+
+ After starting vi, type ':help' and press enter for help.
+
+PROGRAMMING
+===========
+
+ $ tinyscheme
+ ts> (+ 1 2 3)
+
+ $ micropython
+ >>> a = 5
+ >>> print(a*2)
+
+THINGS TO DO
+============
+
+Read a book:
+
+ $ ark search pg alice
+ $ ark read pg 34
+
+Read an encyclopedia article:
+
+ $ ark search wp morse
+ $ ark read wp 5873
+
+View an image:
+
+ $ fbv /opt/ark/gutenberg/cia/maps/gm-map.gif
+
+Communicate with a USB-UART device:
+
+ $ minicom -D /dev/ttyACM0 -b 115200
+

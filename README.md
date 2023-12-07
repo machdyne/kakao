@@ -8,7 +8,7 @@ This repo contains everything necessary to build Kakao from source, the steps de
 
 Kakao can be configured to either:
 
-  1. Keep a small rootfs in RAM and optionally mount additional filesystems later.
+  1. Keep a small rootfs (<8MB) in RAM and optionally mount additional filesystems later.
   2. Mount rootfs from an ext2 partition on the MicroSD card.
 
 ## Supported Boards
@@ -17,12 +17,13 @@ Kakao can be configured to either:
   - [Konfekt](https://machdyne.com/product/konfekt-computer)
   - [Noir](https://machdyne.com/product/noir-computer)
   - [Kopflos](https://machdyne.com/product/kopflos-computer)
+  - [Mozart](https://machdyne.com/product/mozart-motherboard)
 
 Kakao may also work with other boards supported by [linux-on-litex-vexriscv](https://github.com/litex-hub/linux-on-litex-vexriscv).
 
 ## Applications
 
-Kakao includes the following notable applications:
+The ramdisk version of Kakao includes the following notable applications:
 
   - vi
   - nano
@@ -36,6 +37,8 @@ Kakao includes the following notable applications:
   - ark (a script for searching and reading offline information)
   - lesen (a script for reading books)
   - busybox (ls, cp, grep, awk, sed, etc.)
+
+While sdroot version includes these and additional apps.
 
 ## Installation
 
@@ -93,7 +96,17 @@ The latest Kakao images are provided in this repo, but if you want to build the 
 $ git clone http://github.com/machdyne/kakao
 $ git clone http://github.com/buildroot/buildroot
 $ cd buildroot
+
+# use the config for the minimal ramdisk rootfs:
 $ make BR2_EXTERNAL=../kakao/buildroot/ kakao_defconfig
+
+# or the config for sdcard rootfs:
+$ make BR2_EXTERNAL=../kakao/buildroot/ kakao_sdroot_defconfig
+
+# or the config for the supplemental chroot rootfs (experimental):
+$ make BR2_EXTERNAL=../kakao/buildroot/ kakao_sup_defconfig
+
+# and then:
 $ make
 ```
 
@@ -115,6 +128,8 @@ Remove the following lines to free the memory used by the RAM disk:
 linux,initrd-start = <0x41000000>;
 linux,initrd-end   = <0x41800000>;
 ```
+
+You can also remove the "root.cpio" entry from your boot.json file.
 
 Compile the dts file to dtb:
 

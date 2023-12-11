@@ -17,6 +17,7 @@ Kakao can be configured to either:
   - [Konfekt](https://machdyne.com/product/konfekt-computer)
   - [Noir](https://machdyne.com/product/noir-computer)
   - [Kopflos](https://machdyne.com/product/kopflos-computer)
+  - [Minze](https://machdyne.com/product/minze-computer)
   - [Mozart](https://machdyne.com/product/mozart-motherboard)
 
 Kakao may also work with other boards supported by [linux-on-litex-vexriscv](https://github.com/litex-hub/linux-on-litex-vexriscv).

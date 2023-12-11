@@ -38,7 +38,7 @@ The ramdisk version of Kakao includes the following notable applications:
   - lesen (a script for reading books)
   - busybox (ls, cp, grep, awk, sed, etc.)
 
-While sdroot version includes these and additional apps.
+While sdroot version includes these plus additional apps.
 
 ## Installation
 

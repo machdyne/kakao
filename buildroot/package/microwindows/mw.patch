@@ -1,0 +1,68 @@
+diff --no-dereference -p1 -ruN microwindows-orig/src/Arch.rules microwindows/src/Arch.rules
+--- microwindows-orig/src/Arch.rules	2024-05-12 10:02:47.011641063 +0200
++++ microwindows-v0.0.0/src/Arch.rules	2024-05-12 10:00:32.656979067 +0200
+@@ -58,2 +58,3 @@ OBJCOPY = $(TOOLSPREFIX)objcopy
+ NATIVETOOLSPREFIX        =
++RVTOOLSPREFIX            = riscv32-unknown-linux-gnu-
+ ARMTOOLSPREFIX           = arm-linux-
+@@ -118,3 +119,4 @@ endif
+ ifeq ($(ARCH), LINUX-NATIVE)
+-DEFINES += -DLINUX=1 -DUNIX=1
++TOOLSPREFIX = $(RVTOOLSPREFIX)
++DEFINES += -DLINUX=1 -DUNIX=1 -DARCH_NEED_ALIGN32
+ endif
+diff --no-dereference -p1 -ruN microwindows-orig/src/config microwindows/src/config
+--- microwindows-orig/src/config	2024-05-12 10:02:47.023641302 +0200
++++ microwindows-v0.0.0/src/config	2024-05-12 10:00:14.656624235 +0200
+@@ -22,3 +22,3 @@ SHAREDLINK               = N
+ DEBUG                    = N
+-OPTIMIZE                 = Y
++OPTIMIZE                 = N
+ #OPTIMIZE                 = -O1
+@@ -33,7 +33,7 @@ PARALLEL                 = N
+ ####################################################################
+-SCREEN                   = FIWIX
+-MOUSE                    = SERMOUSE
+-KEYBOARD                 = TTYKBD
+-SCREEN_WIDTH             = 1024
+-SCREEN_HEIGHT            = 768
++SCREEN                   = FB
++MOUSE                    = DEVMICEMOUSE
++KEYBOARD                 = SCANKBD
++SCREEN_WIDTH             = 640
++SCREEN_HEIGHT            = 480
+ #X11LIBLOCATION           = /usr/X11/lib
+@@ -74,3 +74,3 @@ INCVNC                   =
+ ####################################################################
+-LINK_APP_INTO_SERVER     = Y
++LINK_APP_INTO_SERVER     = N
+ NANOWM                   = Y
+@@ -106,3 +106,3 @@ LIBJPEG                  = -ljpeg
+ ####################################################################
+-HAVE_PNG_SUPPORT         = Y
++HAVE_PNG_SUPPORT         = N
+ INCPNG                   =
+@@ -122,4 +122,4 @@ LIBTIFF                  = -ltiff
+ ####################################################################
+-HAVE_PCF_SUPPORT         = Y
+-HAVE_PCFGZ_SUPPORT       = Y
++HAVE_PCF_SUPPORT         = N
++HAVE_PCFGZ_SUPPORT       = N
+ PCF_FONT_DIR             = "fonts/pcf"
+@@ -148,4 +148,4 @@ LIBT1LIB                 = -lt1
+ ####################################################################
+-HAVE_FNT_SUPPORT         = Y
+-HAVE_FNTGZ_SUPPORT       = Y
++HAVE_FNT_SUPPORT         = N
++HAVE_FNTGZ_SUPPORT       = N
+ FNT_FONT_DIR             = "fonts/fnt"
+@@ -203,3 +203,3 @@ FBREVERSE                = N
+ GRAYPALETTE              = N
+-HAVETEXTMODE             = N
++HAVETEXTMODE             = Y
+ 
+@@ -228,3 +228,3 @@ HAVETEXTMODE             = N
+ ####################################################################
+-SCREEN_PIXTYPE           = MWPF_TRUECOLORARGB
++SCREEN_PIXTYPE           = MWPF_TRUECOLOR555
+ #SCREEN_PIXTYPE           = MWPF_TRUECOLORABGR

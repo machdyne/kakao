@@ -1,6 +1,6 @@
-diff --no-dereference -p1 -ruN microwindows-orig/src/Arch.rules microwindows/src/Arch.rules
+diff --exclude .git --no-dereference -p1 -ruN microwindows-orig/src/Arch.rules microwindows/src/Arch.rules
 --- microwindows-orig/src/Arch.rules	2024-05-12 10:02:47.011641063 +0200
-+++ microwindows-v0.0.0/src/Arch.rules	2024-05-12 10:00:32.656979067 +0200
++++ microwindows/src/Arch.rules	2024-05-12 10:00:32.656979067 +0200
 @@ -58,2 +58,3 @@ OBJCOPY = $(TOOLSPREFIX)objcopy
  NATIVETOOLSPREFIX        =
 +RVTOOLSPREFIX            = riscv32-unknown-linux-gnu-
@@ -11,9 +11,9 @@ diff --no-dereference -p1 -ruN microwindows-orig/src/Arch.rules microwindows/src
 +TOOLSPREFIX = $(RVTOOLSPREFIX)
 +DEFINES += -DLINUX=1 -DUNIX=1 -DARCH_NEED_ALIGN32
  endif
-diff --no-dereference -p1 -ruN microwindows-orig/src/config microwindows/src/config
+diff --exclude .git --no-dereference -p1 -ruN microwindows-orig/src/config microwindows/src/config
 --- microwindows-orig/src/config	2024-05-12 10:02:47.023641302 +0200
-+++ microwindows-v0.0.0/src/config	2024-05-12 10:00:14.656624235 +0200
++++ microwindows/src/config	2024-05-25 21:51:07.137671249 +0200
 @@ -22,3 +22,3 @@ SHAREDLINK               = N
  DEBUG                    = N
 -OPTIMIZE                 = Y
@@ -42,11 +42,9 @@ diff --no-dereference -p1 -ruN microwindows-orig/src/config microwindows/src/con
 -HAVE_PNG_SUPPORT         = Y
 +HAVE_PNG_SUPPORT         = N
  INCPNG                   =
-@@ -122,4 +122,4 @@ LIBTIFF                  = -ltiff
- ####################################################################
--HAVE_PCF_SUPPORT         = Y
+@@ -123,3 +123,3 @@ LIBTIFF                  = -ltiff
+ HAVE_PCF_SUPPORT         = Y
 -HAVE_PCFGZ_SUPPORT       = Y
-+HAVE_PCF_SUPPORT         = N
 +HAVE_PCFGZ_SUPPORT       = N
  PCF_FONT_DIR             = "fonts/pcf"
 @@ -148,4 +148,4 @@ LIBT1LIB                 = -lt1
@@ -66,3 +64,19 @@ diff --no-dereference -p1 -ruN microwindows-orig/src/config microwindows/src/con
 -SCREEN_PIXTYPE           = MWPF_TRUECOLORARGB
 +SCREEN_PIXTYPE           = MWPF_TRUECOLOR555
  #SCREEN_PIXTYPE           = MWPF_TRUECOLORABGR
+diff --exclude .git --no-dereference -p1 -ruN microwindows-orig/src/demos/nanox/Makefile microwindows/src/demos/nanox/Makefile
+--- microwindows-orig/src/demos/nanox/Makefile	2024-05-12 10:02:47.087642576 +0200
++++ microwindows/src/demos/nanox/Makefile	2024-05-25 21:51:31.441999780 +0200
+@@ -109,3 +109,3 @@ ifneq ($(ARCH),CYGWIN)
+       ifneq ($(ARCH),AQUILA)
+-        #TARGETS += $(MW_DIR_BIN)/nxterm
++        TARGETS += $(MW_DIR_BIN)/nxterm
+       endif
+diff --exclude .git --no-dereference -p1 -ruN microwindows-orig/src/demos/nanox/nxterm.c microwindows/src/demos/nanox/nxterm.c
+--- microwindows-orig/src/demos/nanox/nxterm.c	2024-05-12 10:02:47.095642735 +0200
++++ microwindows/src/demos/nanox/nxterm.c	2024-05-25 21:51:49.618241747 +0200
+@@ -78,3 +78,3 @@
+ #define stdcol 80
+-#define stdrow 50 //25
++#define stdrow 25 //50
+ 

@@ -6,6 +6,7 @@
 
 MICROWINDOWS_VERSION = v0.0.0
 MICROWINDOWS_SITE = $(call github,machdyne,microwindows,$(MICROWINDOWS_VERSION))
+MICROWINDOWS_BIN_ARCH_EXCLUDE = /usr/local/mw
 
 define MICROWINDOWS_BUILD_CMDS
     echo test && cd $(@D)/src && $(TARGET_CONFIGURE_OPTS) $(MAKE)

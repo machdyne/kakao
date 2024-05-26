@@ -1,0 +1,7 @@
+config BR2_PACKAGE_TCC
+    bool "tcc"
+    help
+      The Tiny C Compiler is an x86, X86-64 and ARM processor C compiler
+      initially written by Fabrice Bellard. 
+
+      https://bellard.org/tcc/

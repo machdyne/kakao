@@ -1,0 +1,7 @@
+diff --exclude .git --no-dereference -p1 -ruN tcc-riscv32/Makefile tcc-riscv32-mine/Makefile
+--- tcc-riscv32/Makefile	2024-05-26 21:39:21.253487427 +0200
++++ tcc-riscv32-mine/Makefile	2024-05-26 21:15:42.390615707 +0200
+@@ -261,3 +261,3 @@ endif
+ %_.h : include/%.h conftest.c
+-	$S$(CC) -DC2STR $(filter %.c,$^) -o c2str.exe && ./c2str.exe $< $@
++	gcc -DC2STR $(filter %.c,$^) -o c2str.exe && ./c2str.exe $< $@

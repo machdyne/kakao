@@ -1,0 +1,8 @@
+diff --exclude .git --no-dereference -p1 -ruN tcc-riscv32/lib/stdatomic.c tcc-riscv32-mine/lib/stdatomic.c
+--- tcc-riscv32/lib/stdatomic.c	2024-05-26 21:39:21.261487510 +0200
++++ tcc-riscv32-mine/lib/stdatomic.c	2024-05-26 21:28:55.337740159 +0200
+@@ -113,3 +113,3 @@ ATOMIC_GEN(uint16_t, 2, "w")
+ ATOMIC_GEN(uint32_t, 4, "l")
+-#if defined __x86_64__ || defined __aarch64__ || defined __riscv
++#if defined __x86_64__ || defined __aarch64__ || defined __riscv64
+ ATOMIC_GEN(uint64_t, 8, "q")

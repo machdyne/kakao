@@ -1,0 +1,8 @@
+diff --exclude .git --no-dereference -p1 -ruN tcc-riscv32/tcc.h tcc-riscv32-mine/tcc.h
+--- tcc-riscv32/tcc.h	2024-05-26 21:39:21.265487552 +0200
++++ tcc-riscv32-mine/tcc.h	2024-05-27 10:31:36.195664889 +0200
+@@ -337,3 +337,3 @@ extern long double strtold (const char *
+ # elif defined(TCC_TARGET_RISCV32)
+-#  if defined TCC_RISCV32_ilp32
++#  if defined TCC_RISCV_ilp32
+ #   define CONFIG_TCC_ELFINTERP "/lib/ld-linux-riscv32-ilp32.so.1"

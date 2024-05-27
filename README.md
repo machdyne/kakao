@@ -1,6 +1,6 @@
 # Kakao Linux
 
-Kakao is a Linux distribution for Lone Dynamics FPGA computers. At the moment it is essentially a buildroot configuration with extra packages that makes certain assumptions about the hardware and MicroSD card partition layout.
+Kakao is a Linux distribution for Machdyne / Lone Dynamics FPGA computers. At the moment it is essentially a buildroot configuration with extra packages that makes certain assumptions about the hardware and MicroSD card partition layout.
 
 The goal of Kakao is to provide a minimal practical environment with access to useful timeless applications.
 

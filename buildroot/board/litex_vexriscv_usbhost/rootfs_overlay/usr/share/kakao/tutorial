@@ -66,7 +66,7 @@ Kakao provides multiple options for editing text.
 
  $ vi
 
- After starting vi, type ':help' and press enter for help.
+ After starting vi, type ':help' and press enter for help or ':q' to quit.
 
 PROGRAMMING
 ===========
@@ -77,6 +77,12 @@ PROGRAMMING
  $ micropython
  >>> a = 5
  >>> print(a*2)
+
+ $ echo "#include <tcclib.h>" > hello.c
+ $ echo "int main() { printf(\"Hello world\!\n\"); return 0; }" >> hello.c
+ $ tcc -o hello hello.c
+ $ ./hello
+
 
 THINGS TO DO
 ============
@@ -97,5 +103,5 @@ View an image:
 
 Communicate with a USB-UART device:
 
- $ minicom -D /dev/ttyACM0 -b 115200
+ $ screen /dev/ttyUSB0 115200
 

@@ -11,3 +11,10 @@ config BR2_PACKAGE_TINYSCHEME
 	bool "TinyScheme"
 	help
 	  Enable TinyScheme
+
+source "$BR2_EXTERNAL_LITEX_VEXRISCV_PATH/package/tcc/Config.in"
+
+config BR2_PACKAGE_TCC
+	bool "tcc"
+	help
+	  Enable TinyCC

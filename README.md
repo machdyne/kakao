@@ -38,6 +38,7 @@ The ramdisk version of Kakao includes the following notable applications:
   - fbv (image viewer)
   - ark (a script for searching and reading offline information)
   - lesen (a script for reading books)
+  - dropbear (ssh client + server)
   - busybox (ls, cp, grep, awk, sed, etc.)
 
 While the sdroot version includes these plus additional apps.

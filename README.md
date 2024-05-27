@@ -28,6 +28,7 @@ The ramdisk version of Kakao includes the following notable applications:
 
   - vi
   - nano
+  - tcc
   - tinyscheme
   - micropython
   - screen

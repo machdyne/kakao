@@ -26,14 +26,12 @@ Kakao may also work with other boards supported by [linux-on-litex-vexriscv](htt
 
 The ramdisk version of Kakao includes the following notable applications:
 
-  - vi
-  - nano
-  - tcc
-  - tinyscheme
-  - micropython
-  - screen
-  - picocom
-  - minicom
+  - vi (text editor)
+  - nano (text editor)
+  - tcc (c compiler)
+  - tinyscheme (lisp interpreter)
+  - micropython (python interpreter)
+  - screen (text window manager + terminal emulator)
   - links (text-based web browser)
   - fbv (image viewer)
   - ark (a script for searching and reading offline information)

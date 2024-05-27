@@ -23,5 +23,9 @@ define TCC_INSTALL_TARGET_CMDS
 	rm -f $(TARGET_DIR)/usr/local/bin/riscv32-ilp32-tcc
 endef
 
+define TCC_UNINSTALL_TARGET_CMDS
+	cd $(@D) && $(MAKE) uninstall
+endef
+
 $(eval $(generic-package))
 

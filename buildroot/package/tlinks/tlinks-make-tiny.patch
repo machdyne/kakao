@@ -1,0 +1,29 @@
+diff --exclude .git --no-dereference -p1 -ruN links-2.26/language.inc links-2.26-mine/language.inc
+--- links-2.26/language.inc	2024-05-27 14:54:37.505895299 +0200
++++ links-2.26-mine/language.inc	2024-05-27 14:55:48.570457024 +0200
+@@ -23928,2 +23928,3 @@ static_const struct translation translat
+ static_const struct translation_desc translations [] = {
++/*
+   { translation_bahasa_indonesian },
+@@ -23937,3 +23938,5 @@ static_const struct translation_desc tra
+   { translation_dutch },
++*/
+   { translation_english },
++/*
+   { translation_estonian },
+@@ -23961,2 +23964,3 @@ static_const struct translation_desc tra
+   { translation_upper_sorbian },
++*/
+ };
+diff --exclude .git --no-dereference -p1 -ruN links-2.26/suffix.inc links-2.26-mine/suffix.inc
+--- links-2.26/suffix.inc	2024-05-27 14:54:37.501895267 +0200
++++ links-2.26-mine/suffix.inc	2024-05-27 14:55:33.046334161 +0200
+@@ -3,2 +3,4 @@
+ static_const const_char_ptr domain_suffix[] = {
++	""
++/*
+ 	"*.0emm.com",
+@@ -9354,2 +9356,3 @@ static_const const_char_ptr domain_suffi
+ 	"zw",
++*/
+ };

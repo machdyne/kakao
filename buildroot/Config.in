@@ -18,3 +18,10 @@ config BR2_PACKAGE_TCC
 	bool "tcc"
 	help
 	  Enable TinyCC
+
+source "$BR2_EXTERNAL_LITEX_VEXRISCV_PATH/package/tlinks/Config.in"
+
+config BR2_PACKAGE_TLINKS
+	bool "tlinks"
+	help
+	  Enable Tiny links

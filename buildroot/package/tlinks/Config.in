@@ -1,0 +1,4 @@
+config BR2_PACKAGE_TLINKS
+    bool "tlinks"
+    help
+      Tiny links web browser.

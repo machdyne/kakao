@@ -1,4 +1,4 @@
-#!/bin/ash
+#!/bin/bash
 
 ARKDIR="/opt/ark"
 READER="lesen"
@@ -10,6 +10,8 @@ if [ "$1" = "browse" ] || [ "$1" = "list" ]; then
 		grep -ni "" $ARKDIR/wikipedia/articles.lst | less
 	elif [ "$2" = "gutenberg" ] || [ "$2" = "pg" ]; then
 		grep -ni "" $ARKDIR/gutenberg/cdrom/pgcdrom.lst | less
+	elif [ "$2" = "medline" ] || [ "$2" = "ml" ]; then
+		grep -ni "" $ARKDIR/medline/medline.lst | less
 	fi
 
 elif [ "$1" = "search" ]; then
@@ -18,6 +20,8 @@ elif [ "$1" = "search" ]; then
 		grep -ni "$3" $ARKDIR/wikipedia/articles.lst
 	elif [ "$2" = "gutenberg" ] || [ "$2" = "pg" ]; then
 		grep -ni "$3" $ARKDIR/gutenberg/cdrom/pgcdrom.lst
+	elif [ "$2" = "medline" ] || [ "$2" = "ml" ]; then
+		grep -ni "$3" $ARKDIR/medline/medline.lst
 	fi
 
 elif [ "$1" = "read" ]; then
@@ -30,14 +34,18 @@ elif [ "$1" = "read" ]; then
 		FN=`sed "$3!d;s/ .*//g" $ARKDIR/gutenberg/cdrom/pgcdrom.lst`
 		WFN="$ARKDIR/gutenberg/cdrom/$FN"
 		$READER $WFN
+	elif [ "$2" = "medline" ] || [ "$2" = "ml" ]; then
+		FN=`sed "$3!d;s/ .*//g" $ARKDIR/medline/medline.lst`
+		WFN="$ARKDIR/medline/$FN"
+		$READER $WFN
 	fi
 
 else
 
 	echo "ark help:"
 	echo
-	echo "ark browse <wp|pg>"
-	echo "ark search <wp|pg> <keyword>"
-	echo "ark read <wp|pg> <id>"
+	echo "ark browse <wp|pg|ml>"
+	echo "ark search <wp|pg|ml> <keyword>"
+	echo "ark read <wp|pg|ml> <id>"
 
 fi

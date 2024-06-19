@@ -87,7 +87,7 @@ Copy the `Image` and `rootfs.cpio` files to the boot partition of the MicroSD ca
   - opensbi.bin
   - the DTB file for your board (i.e. konfekt.dtb)
 
-Those files can found be in the `images/linux` directory of the repo for your board.
+Those files can found be in the `images` directory of the repo for your board.
 
 Finally, make sure the latest gateware is installed by following the instructions in the repo for your board.
 

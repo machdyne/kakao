@@ -1,0 +1,101 @@
+--- zssh-1.5c/configure	2003-09-24 06:01:15.000000000 +0200
++++ zssh-1.5c-mine/configure	2024-06-30 23:33:09.926928795 +0200
+@@ -54,2 +54,3 @@ infodir='${prefix}/info'
+ mandir='${prefix}/man'
++stripbin=${STRIP}
+ 
+@@ -1643,90 +1644,2 @@ fi
+ 
+-
+-echo $ac_n "checking whether getpgrp takes no argument""... $ac_c" 1>&6
+-echo "configure:1647: checking whether getpgrp takes no argument" >&5
+-if eval "test \"`echo '$''{'ac_cv_func_getpgrp_void'+set}'`\" = set"; then
+-  echo $ac_n "(cached) $ac_c" 1>&6
+-else
+-  if test "$cross_compiling" = yes; then
+-  { echo "configure: error: cannot check getpgrp if cross compiling" 1>&2; exit 1; }
+-else
+-  cat > conftest.$ac_ext <<EOF
+-#line 1655 "configure"
+-#include "confdefs.h"
+-
+-/*
+- * If this system has a BSD-style getpgrp(),
+- * which takes a pid argument, exit unsuccessfully.
+- *
+- * Snarfed from Chet Ramey's bash pgrp.c test program
+- */
+-#include <stdio.h>
+-#include <sys/types.h>
+-
+-int     pid;
+-int     pg1, pg2, pg3, pg4;
+-int     ng, np, s, child;
+-
+-main()
+-{
+-        pid = getpid();
+-        pg1 = getpgrp(0);
+-        pg2 = getpgrp();
+-        pg3 = getpgrp(pid);
+-        pg4 = getpgrp(1);
+-
+-        /*
+-         * If all of these values are the same, it's pretty sure that
+-         * we're on a system that ignores getpgrp's first argument.
+-         */
+-        if (pg2 == pg4 && pg1 == pg3 && pg2 == pg3)
+-                exit(0);
+-
+-        child = fork();
+-        if (child < 0)
+-                exit(1);
+-        else if (child == 0) {
+-                np = getpid();
+-                /*
+-                 * If this is Sys V, this will not work; pgrp will be
+-                 * set to np because setpgrp just changes a pgrp to be
+-                 * the same as the pid.
+-                 */
+-                setpgrp(np, pg1);
+-                ng = getpgrp(0);        /* Same result for Sys V and BSD */
+-                if (ng == pg1) {
+-                        exit(1);
+-                } else {
+-                        exit(0);
+-                }
+-        } else {
+-                wait(&s);
+-                exit(s>>8);
+-        }
+-}
+-
+-EOF
+-if { (eval echo configure:1710: \"$ac_link\") 1>&5; (eval $ac_link) 2>&5; } && test -s conftest${ac_exeext} && (./conftest; exit) 2>/dev/null
+-then
+-  ac_cv_func_getpgrp_void=yes
+-else
+-  echo "configure: failed program was:" >&5
+-  cat conftest.$ac_ext >&5
+-  rm -fr conftest*
+-  ac_cv_func_getpgrp_void=no
+-fi
+-rm -fr conftest*
+-fi
+-
+-
+-fi
+-
+-echo "$ac_t""$ac_cv_func_getpgrp_void" 1>&6
+-if test $ac_cv_func_getpgrp_void = yes; then
+-  cat >> confdefs.h <<\EOF
+-#define GETPGRP_VOID 1
+-EOF
+-
+-fi
+-
+ echo $ac_n "checking return type of signal handlers""... $ac_c" 1>&6
+@@ -2069,2 +1982,3 @@ s%@CC@%$CC%g
+ s%@CPP@%$CPP%g
++s%@STRIP@%$stripbin%g
+ s%@EXTRA_DEPS@%$EXTRA_DEPS%g

@@ -1,0 +1,17 @@
+--- zssh-1.5c/Makefile.in	2003-09-23 04:18:54.000000000 +0200
++++ zssh-1.5c-mine/Makefile.in	2024-06-30 23:58:40.117595328 +0200
+@@ -26,3 +26,3 @@ LDFLAGS 	=  @LDFLAGS@
+ EXTRA_DEPS	=  @EXTRA_DEPS@
+-
++STRIP = @STRIP@
+ #uncomment this for debug infos
+@@ -76,6 +76,6 @@ ztelnet : $(NAME)
+ install :
+-	strip $(NAME)
+-	$(INSTALL) -m 0711 zssh @bindir@
+-	ln -f @bindir@/zssh  @bindir@/ztelnet
+-	$(INSTALL) -m 0644 $(MANS) @mandir@/man1
++	$(STRIP) zssh
++	$(INSTALL) -m 0711 zssh @bindir@/ztelnet
++	#ln -s @bindir@/zssh  @bindir@/ztelnet
++	#$(INSTALL) -m 0644 $(MANS) @mandir@/man1

@@ -1,0 +1,15 @@
+--- zssh-1.5c/init.c	2003-09-22 05:36:59.000000000 +0200
++++ zssh-1.5c-mine/init.c	2024-06-24 13:12:34.941218280 +0200
+@@ -63,5 +63,8 @@ void	init_gl(int ac, char **av)
+       gl_shav[0] = "ssh";
+-      gl_shav[1] = "-e";
+-      gl_shav[2] = "none";
+-      gl_shav[3] = 0;
++      gl_shav[1] = "-T";
++      gl_shav[2] = "-e";
++      //gl_shav[1] = "-e";
++      //gl_shav[2] = "none";
++      //gl_shav[3] = 0;
++      //gl_shav[3] = 0;
+    }
+

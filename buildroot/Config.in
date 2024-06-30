@@ -32,3 +32,10 @@ config BR2_PACKAGE_NETKIT_TELNET
 	bool "netkit-telnet"
 	help
 	  Enable netkit-telnet
+
+source "$BR2_EXTERNAL_LITEX_VEXRISCV_PATH/package/zssh/Config.in"
+
+config BR2_PACKAGE_ZSSH
+	bool "zssh"
+	help
+	  Enable zssh/ztelnet

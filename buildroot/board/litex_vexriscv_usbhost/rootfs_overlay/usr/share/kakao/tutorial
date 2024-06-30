@@ -55,8 +55,6 @@ Kakao provides multiple options for editing text.
 
  $ nano
 
- After starting nano, press CTRL-G for help.
-
  To edit an existing file, type the filename after the command:
 
  $ nano myfile.txt
@@ -66,17 +64,23 @@ Kakao provides multiple options for editing text.
 
  $ vi
 
- After starting vi, type ':help' and press enter for help or ':q' to quit.
+ After starting vi, type ':q' and press enter to quit.
 
 PROGRAMMING
 ===========
 
+Lisp:
+
  $ tinyscheme
  ts> (+ 1 2 3)
+
+Python:
 
  $ micropython
  >>> a = 5
  >>> print(a*2)
+
+C:
 
  $ echo "#include <tcclib.h>" > hello.c
  $ echo "int main() { printf(\"Hello world\!\n\"); return 0; }" >> hello.c
@@ -103,5 +107,15 @@ View an image:
 
 Communicate with a USB-UART device:
 
- $ screen /dev/ttyUSB0 115200
+ $ screen /dev/ttyUSB0 115200		# press CTRL-A K to exit
 
+
+NETWORKING
+==========
+
+If your computer has built-in Ethernet or you have a compatible USB Ethernet or
+WiFi adapter, you can connect to your local network and the Internet.
+
+Connect to Machdyne BBS:
+
+ $ telnet bbs.machdyne.com

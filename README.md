@@ -99,6 +99,7 @@ The latest Kakao images are provided in this repo, but if you want to build the 
 $ git clone http://github.com/machdyne/kakao
 $ git clone http://github.com/buildroot/buildroot
 $ cd buildroot
+$ git checkout 4b6ccffcfb84938d2f0813d7c98907d75b49b842
 
 # use the config for the minimal ramdisk rootfs:
 $ make BR2_EXTERNAL=../kakao/buildroot/ kakao_defconfig

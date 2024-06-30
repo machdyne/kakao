@@ -25,3 +25,10 @@ config BR2_PACKAGE_TLINKS
 	bool "tlinks"
 	help
 	  Enable Tiny links
+
+source "$BR2_EXTERNAL_LITEX_VEXRISCV_PATH/package/netkit-telnet/Config.in"
+
+config BR2_PACKAGE_NETKIT_TELNET
+	bool "netkit-telnet"
+	help
+	  Enable netkit-telnet

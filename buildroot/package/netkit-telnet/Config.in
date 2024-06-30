@@ -1,0 +1,6 @@
+config BR2_PACKAGE_NETKIT_TELNET
+    bool "netkit-telnet"
+    help
+      netkit-telnet
+
+		https://github.com/machdyne/netkit-telnet

@@ -6,36 +6,7 @@ config BR2_PACKAGE_VEXRISCV_AES
 	  Enable VexRiscv AES custom instruction usage in openssl and dropbear
 
 source "$BR2_EXTERNAL_LITEX_VEXRISCV_PATH/package/tinyscheme/Config.in"
-
-config BR2_PACKAGE_TINYSCHEME
-	bool "TinyScheme"
-	help
-	  Enable TinyScheme
-
 source "$BR2_EXTERNAL_LITEX_VEXRISCV_PATH/package/tcc/Config.in"
-
-config BR2_PACKAGE_TCC
-	bool "tcc"
-	help
-	  Enable TinyCC
-
 source "$BR2_EXTERNAL_LITEX_VEXRISCV_PATH/package/tlinks/Config.in"
-
-config BR2_PACKAGE_TLINKS
-	bool "tlinks"
-	help
-	  Enable Tiny links
-
 source "$BR2_EXTERNAL_LITEX_VEXRISCV_PATH/package/netkit-telnet/Config.in"
-
-config BR2_PACKAGE_NETKIT_TELNET
-	bool "netkit-telnet"
-	help
-	  Enable netkit-telnet
-
 source "$BR2_EXTERNAL_LITEX_VEXRISCV_PATH/package/zssh/Config.in"
-
-config BR2_PACKAGE_ZSSH
-	bool "zssh"
-	help
-	  Enable zssh/ztelnet

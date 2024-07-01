@@ -32,7 +32,6 @@ The ramdisk version of Kakao includes the following notable applications:
   - nano (text editor)
   - tcc (c compiler)
   - tinyscheme (lisp interpreter)
-  - micropython (python interpreter)
   - screen (text window manager + terminal emulator)
   - links (text-based web browser)
   - fbv (image viewer)
@@ -110,6 +109,9 @@ $ make BR2_EXTERNAL=../kakao/buildroot/ kakao_sdroot_defconfig
 # or the config for the supplemental chroot rootfs (experimental):
 $ make BR2_EXTERNAL=../kakao/buildroot/ kakao_sup_defconfig
 
+# or the config for QEMU:
+$ make BR2_EXTERNAL=../kakao/buildroot/ kakao_qemu_defconfig
+
 # and then:
 $ make
 ```
@@ -150,6 +152,20 @@ $ sudo mount /dev/sdX2 /mnt
 $ cd /mnt
 $ sudo tar -xvf /path/to/buildroot/output/images/rootfs.tar
 $ eject /dev/sdX2
+```
+
+## Running Kakao in a VM
+
+1. Follow [these instructions](https://risc-v-getting-started-guide.readthedocs.io/en/latest/linux-qemu.html) to install qemu-riscv32-softmmu.
+
+2. Build Kakao Linux
+
+See the "Building Kakao Linux" section above, and use the `kakao_qemu_defconfig` buildroot config.
+
+3. Run Kakao on QEMU:
+
+```
+$ qemu-system-riscv32 -M virt -bios output/images/fw_jump.elf -kernel output/images/Image -append "rootwait root=/dev/vda ro" -drive file=output/images/rootfs.ext2,format=raw,id=hd0 -device virtio-blk-device,drive=hd0 -netdev user,id=net0 -device virtio-net-device,netdev=net0 -nographic -m 256m
 ```
 
 # License

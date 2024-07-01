@@ -4,3 +4,9 @@ config BR2_PACKAGE_NETKIT_TELNET
       netkit-telnet
 
 		https://github.com/machdyne/netkit-telnet
+
+config BR2_PACKAGE_NETKIT_TELNET_REMOVE_LIBSTDCPP
+   bool "netkit-telnet-remove-libstdc++"
+   default n
+   help
+      Remove libstdc++ from target

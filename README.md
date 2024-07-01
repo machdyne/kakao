@@ -154,19 +154,21 @@ $ sudo tar -xvf /path/to/buildroot/output/images/rootfs.tar
 $ eject /dev/sdX2
 ```
 
-## Running Kakao in a VM
+## Running Kakao on a VM
 
-1. Follow [these instructions](https://risc-v-getting-started-guide.readthedocs.io/en/latest/linux-qemu.html) to install qemu-riscv32-softmmu.
+1. Follow [these instructions](https://risc-v-getting-started-guide.readthedocs.io/en/latest/linux-qemu.html) to build and install qemu-riscv32-softmmu.
 
 2. Build Kakao Linux
 
 See the "Building Kakao Linux" section above, and use the `kakao_qemu_defconfig` buildroot config.
 
-3. Run Kakao on QEMU:
+3. Run Kakao with QEMU:
 
 ```
 $ qemu-system-riscv32 -M virt -bios output/images/fw_jump.elf -kernel output/images/Image -append "rootwait root=/dev/vda ro" -drive file=output/images/rootfs.ext2,format=raw,id=hd0 -device virtio-blk-device,drive=hd0 -netdev user,id=net0 -device virtio-net-device,netdev=net0 -nographic -m 256m
 ```
+
+To run in graphics mode, replace `-nographic` with `-vga std -L replace-with-your-path-to-qemu/qemu/pc-bios`.
 
 # License
 

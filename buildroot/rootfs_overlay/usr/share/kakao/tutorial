@@ -118,4 +118,4 @@ WiFi adapter, you can connect to your local network and the Internet.
 
 Connect to Machdyne BBS:
 
- $ telnet bbs.machdyne.com
+ $ bbs

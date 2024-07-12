@@ -12,7 +12,7 @@ NETKIT_TELNET_SITE_METHOD = git
 ifeq ($(BR2_PACKAGE_NETKIT_TELNET_REMOVE_LIBSTDCPP),y)
 	RMCMD = rm -f $(TARGET_DIR)/usr/lib/libstdc++.*
 else
-	RMCMD = "echo not removing libstdc++"
+	RMCMD = echo not removing libstdc++
 endif
 
 define NETKIT_TELNET_BUILD_CMDS

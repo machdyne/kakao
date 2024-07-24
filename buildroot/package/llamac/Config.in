@@ -1,0 +1,6 @@
+config BR2_PACKAGE_LLAMAC
+    bool "llamac"
+    help
+      llamac
+
+		https://github.com/karpathy/llama2.c

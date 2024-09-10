@@ -80,7 +80,7 @@ $ sudo mkfs.ext2 /dev/sdX4
 
 ### Installing Kakao Linux
 
-Copy the `Image` and `rootfs.cpio` files to the boot partition of the MicroSD card, in addition to the following files:
+Copy the `Image` and `rootfs.cpio` files from this repo to the boot partition of the MicroSD card, in addition to the following files:
 
   - boot.json
   - opensbi.bin

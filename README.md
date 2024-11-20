@@ -30,11 +30,9 @@ The ramdisk version of Kakao includes the following notable applications:
 
   - vi (text editor)
   - nano (text editor)
-  - tcc (c compiler)
   - tinyscheme (lisp interpreter)
   - screen (text window manager + terminal emulator)
   - links (text-based web browser)
-  - fbv (image viewer)
   - ark (a script for searching and reading offline information)
   - lesen (a script for reading books)
   - dropbear (ssh client + server)
@@ -98,7 +96,8 @@ The latest Kakao images are provided in this repo, but if you want to build the 
 $ git clone http://github.com/machdyne/kakao
 $ git clone http://github.com/buildroot/buildroot
 $ cd buildroot
-$ git checkout 4b6ccffcfb84938d2f0813d7c98907d75b49b842
+# kakao may build with the latest buildroot, but it has been tested with:
+$ git checkout 575d971820dedf7a0c6e217deb57ecd4db1218f5
 
 # use the config for the minimal ramdisk rootfs:
 $ make BR2_EXTERNAL=../kakao/buildroot/ kakao_defconfig

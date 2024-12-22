@@ -1,0 +1,19 @@
+
+Welcome To VI
+
+Use The Following Keyboard Commands
+
+UP		Move Cursor
+DOWN		Move Cursor
+LEFT		Move Cursor
+RIGHT		Move Cursor
+
+:e /home/myfile.txt	Create New File In Home Directory Named myfile.txt
+:e /home/existing.txt	Open Existing File In Home Directory Named existing.txt
+
+i		Start Edit
+CTRL c		Stop Edit
+:w  ENTER	Save
+:q  ENTER	Exit
+:q! ENTER	Exit No Save
+:wq ENTER	Exit Save

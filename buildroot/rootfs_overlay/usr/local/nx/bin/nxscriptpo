@@ -1,0 +1,8 @@
+clear
+read -p "Power Off? (y/n): " poconf
+case $poconf in
+	y ) clear; echo "Preparing To Power Off ... Safe To Remove Power When Returned To Kakao Shell"; poweroff;;
+	Y ) clear; echo "Preparing To Power Off ... Safe To Remove Power When Returned To Kakao Shell"; poweroff;;
+	* ) exit;;
+esac
+exit

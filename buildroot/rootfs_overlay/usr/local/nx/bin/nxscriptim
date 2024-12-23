@@ -1,0 +1,4 @@
+clear
+read -p "Enter Path To Image [example] /usr/local/nx/share/md.gif : " impath
+/usr/local/nx/bin/nxview $impath
+exit

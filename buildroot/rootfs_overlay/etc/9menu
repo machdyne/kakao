@@ -1,0 +1,10 @@
+Hallo Tutorial:nxterm "/usr/bin/hallo"
+nXterm:nxterm
+VI Text Editor:nxterm "vi /usr/local/nx/share/vi.txt"
+Links Browser:nxterm "links /usr/local/nx/share/links.html"
+TinyScheme:nxterm "tinyscheme"
+Machdyne BBS:nxterm "bbs"
+nXkeyboard:nxkbd
+nXmag Magnify:nxmag
+nXview Images:nxterm "/usr/local/nx/bin/nxscriptim"
+Power Off:nxterm "/usr/local/nx/bin/nxscriptpo"

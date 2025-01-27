@@ -7,4 +7,5 @@ Machdyne BBS:nxterm "bbs"
 nXkeyboard:nxkbd
 nXmag Magnify:nxmag
 nXview Images:nxterm "/usr/local/nx/bin/nxscriptim"
+Screen Saver:nsaver "12"
 Power Off:nxterm "/usr/local/nx/bin/nxscriptpo"

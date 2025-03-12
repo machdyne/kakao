@@ -1,0 +1,3 @@
+#!/bin/sh
+time mutool convert -F png -o /tmp/page.png $1 $2 && fbv /tmp/page1.png
+

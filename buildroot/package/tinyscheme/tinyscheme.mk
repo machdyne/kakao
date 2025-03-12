@@ -4,7 +4,7 @@
 #
 #############################################################
 
-TINYSCHEME_VERSION = 1.41
+TINYSCHEME_VERSION = 1.42
 TINYSCHEME_SITE = http://downloads.sourceforge.net/project/tinyscheme/tinyscheme/tinyscheme-$(TINYSCHEME_VERSION)
 TINYSCHEME_SOURCE = tinyscheme-$(TINYSCHEME_VERSION).tar.gz
 
@@ -21,9 +21,10 @@ define TINYSCHEME_INSTALL_TARGET_CMDS
     $(INSTALL) -m 0755 -D $(@D)/libtinyscheme.so $(TARGET_DIR)/usr/lib/libtinyscheme.so
     $(INSTALL) -m 0755 -D $(@D)/libtinyscheme.a $(TARGET_DIR)/usr/lib/libtinyscheme.a
 
-# init.scm
+# init.scm / manual
     $(INSTALL) -m 0755 -d $(TARGET_DIR)/usr/lib/tinyscheme
     $(INSTALL) -m 0755 -D $(@D)/init.scm $(TARGET_DIR)/usr/lib/tinyscheme/init.scm
+    $(INSTALL) -m 0755 -D $(@D)/Manual.txt $(TARGET_DIR)/usr/lib/tinyscheme/Manual.txt
 endef
 
 define TINYSCHEME_UNINSTALL_TARGET_CMDS

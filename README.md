@@ -169,6 +169,18 @@ $ qemu-system-riscv32 -M virt -bios output/images/fw_jump.elf -kernel output/ima
 
 To run in graphics mode, replace `-nographic` with `-vga std -L replace-with-your-path-to-qemu/qemu/pc-bios`.
 
+## USB WiFi Guide
+
+This has been tested with the TP-LINK TL-WN725N, for other devices you may need to build a different kernel module. The necessary packages are only supported in the sdroot configuration.
+
+```
+$ isnmod /lib/modules/6.1.0-rc2/extra/8188eu.ko
+$ iw link set wlan0 up
+$ wpa_passphrase "ssid" "password" > /etc/wpa_supplicant.conf
+$ wpa_supplicant -B -i wlan0 -c /etc/wpa_supplicant.conf
+$ udhcpc -i wlan0
+```
+
 # License
 
 Kakao is a partial fork of [linux-on-litex-vexriscv](https://github.com/litex-hub/linux-on-litex-vexriscv) and this repo is released under the BSD 2-Clause License, with the following exception(s):

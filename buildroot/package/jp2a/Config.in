@@ -1,0 +1,4 @@
+config BR2_PACKAGE_JP2A
+    bool "jp2a"
+    help
+      JPEG to ASCII converter.

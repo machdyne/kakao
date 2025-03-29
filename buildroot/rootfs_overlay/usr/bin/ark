@@ -1,8 +1,17 @@
 #!/bin/ash
 
-ARKDIR="/opt/ark"
-READER="lesen"
+ARKDIR="ark"
+PAGER="lesen"
 BROWSER="links"
+VIEWER="jp2a"	# can also use fbv
+
+if [ -d /opt/ark ]; then
+	ARKDIR="/opt/ark"
+fi
+
+if [ -f /usr/bin/fbv ]; then
+    VIEWER="fbv"
+fi
 
 if [ "$1" = "browse" ] || [ "$1" = "list" ]; then
 
@@ -12,6 +21,10 @@ if [ "$1" = "browse" ] || [ "$1" = "list" ]; then
 		grep -ni "" $ARKDIR/gutenberg/cdrom/pgcdrom.lst | less
 	elif [ "$2" = "medline" ] || [ "$2" = "ml" ]; then
 		grep -ni "" $ARKDIR/medline/medline.lst | less
+	elif [ "$2" = "arklite" ] || [ "$2" = "al" ]; then
+		grep -ni "" $ARKDIR/arklite/books/books.lst | less
+	elif [ "$2" = "arkcodex" ] || [ "$2" = "ac" ]; then
+		tar -tf $ARKDIR/arklite/codex.tgz | grep "\/$" | less
 	fi
 
 elif [ "$1" = "search" ]; then
@@ -22,6 +35,10 @@ elif [ "$1" = "search" ]; then
 		grep -ni "$3" $ARKDIR/gutenberg/cdrom/pgcdrom.lst
 	elif [ "$2" = "medline" ] || [ "$2" = "ml" ]; then
 		grep -ni "$3" $ARKDIR/medline/medline.lst
+	elif [ "$2" = "arklite" ] || [ "$2" = "al" ]; then
+		grep -ni "$3" $ARKDIR/arklite/books/books.lst
+	elif [ "$2" = "arkcodex" ] || [ "$2" = "ac" ]; then
+		tar -tf $ARKDIR/arklite/codex.tgz | grep -i "$3"
 	fi
 
 elif [ "$1" = "read" ]; then
@@ -33,19 +50,43 @@ elif [ "$1" = "read" ]; then
 	elif [ "$2" = "gutenberg" ] || [ "$2" = "pg" ]; then
 		FN=`sed "$3!d;s/ .*//g" $ARKDIR/gutenberg/cdrom/pgcdrom.lst`
 		WFN="$ARKDIR/gutenberg/cdrom/$FN"
-		$READER $WFN
+		$PAGER $WFN
 	elif [ "$2" = "medline" ] || [ "$2" = "ml" ]; then
 		FN=`sed "$3!d;s/ .*//g" $ARKDIR/medline/medline.lst`
 		WFN="$ARKDIR/medline/$FN"
-		$READER $WFN
+		$PAGER $WFN
+	elif [ "$2" = "arklite" ] || [ "$2" = "al" ]; then
+		FN=`sed "$3!d;s/ .*//g" $ARKDIR/arklite/books/books.lst`
+		WFN="$ARKDIR/arklite/books/$FN"
+		echo $FN
+		zcat $WFN | $PAGER
+	elif [ "$2" = "arkcodex" ] || [ "$2" = "ac" ]; then
+		tar -xvf $ARKDIR/arklite/codex.tgz -O "codex/topic/$3/summary.txt" > \
+			/tmp/ark.txt
+		$PAGER /tmp/ark.txt
+	fi
+
+elif [ "$1" = "view" ]; then
+
+	if [ "$2" = "arkcodex" ] || [ "$2" = "ac" ]; then
+		tar -xvf $ARKDIR/arklite/codex.tgz -O "codex/topic/$3/img_0.jpg" > /tmp/ark.jpg
+		$VIEWER /tmp/ark.jpg
 	fi
 
 else
 
 	echo "ark help:"
 	echo
-	echo "ark browse <wp|pg|ml>"
-	echo "ark search <wp|pg|ml> <keyword>"
-	echo "ark read <wp|pg|ml> <id>"
+	echo "ark browse <ds>"
+	echo "ark search <ds> <keyword>"
+	echo "ark read <ds> <id|topic>"
+	echo "ark view <ds> <id|topic>"
+	echo
+	echo "ds: wp/wikipedia, pg/gutenberg, ml/medline, al/arklite, ac/arkcodex"
+	echo
+	echo "example: ark browse pg"
+	echo "example: ark read pg 30"
+	echo "example: ark read ac \"Organic chemistry\""
+	echo "example: ark view ac \"Apple\""
 
 fi

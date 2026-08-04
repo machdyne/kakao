@@ -1,0 +1,10 @@
+--- zssh-1.5c/openpty.c	2003-09-24 06:05:06.000000000 +0200
++++ zssh-1.5c-mine/openpty.c	2026-08-04 12:36:26.378941618 +0200
+@@ -9,6 +9,7 @@
+  */
+ 
+ #include "zssh.h"
++#include <pty.h>
+ 
+ #define GL_SLAVENAMELEN	50
+ static char	gl_slavename[GL_SLAVENAMELEN + 1] = {0};

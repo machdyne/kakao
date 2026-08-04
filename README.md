@@ -97,7 +97,7 @@ $ git clone http://github.com/machdyne/kakao
 $ git clone http://github.com/buildroot/buildroot
 $ cd buildroot
 # kakao may build with the latest buildroot, but it has been tested with:
-$ git checkout 575d971820dedf7a0c6e217deb57ecd4db1218f5
+$ git checkout 20d816651cc8b15f43bd4c95fbe8d8babe9e8dc9
 
 # use the config for the minimal ramdisk rootfs:
 $ make BR2_EXTERNAL=../kakao/buildroot/ kakao_defconfig

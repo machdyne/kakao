@@ -1,0 +1,8 @@
+config BR2_PACKAGE_KIDGAMES
+	bool "kidgames"
+	select BR2_PACKAGE_NCURSES
+
+	help
+	  KidGames is a collection of terminal games using ncurses.
+
+	  https://github.com/machdyne/kidgames

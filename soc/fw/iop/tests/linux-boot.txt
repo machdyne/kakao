@@ -1,0 +1,215 @@
+
+OpenSBI v1.9
+   ____                    _____ ____ _____
+  / __ \                  / ____|  _ \_   _|
+ | |  | |_ __   ___ _ __ | (___ | |_) || |
+ | |  | | '_ \ / _ \ '_ \ \___ \|  _ < | |
+ | |__| | |_) |  __/ | | |____) | |_) || |_
+  \____/| .__/ \___|_| |_|_____/|____/_____|
+        | |
+        |_|
+
+Platform Name               : Kakao SOC (simulation)
+Platform Features           : medeleg
+Platform HART Count         : 1
+Platform HART Protection    : none
+Platform IPI Device         : aclint-mswi
+Platform Timer Device       : aclint-mtimer @ 48000000Hz
+Platform Console Device     : uart8250
+Platform HSM Device         : ---
+Platform PMU Device         : ---
+Platform Reboot Device      : ---
+Platform Shutdown Device    : ---
+Platform Suspend Device     : ---
+Platform CPPC Device        : ---
+Firmware Base               : 0x80000000
+Firmware Size               : 573 KB
+Firmware RW Offset          : 0x80000
+Firmware RW Size            : 61 KB
+Firmware Heap Offset        : 0x86000
+Firmware Heap Size          : 37 KB (total), 0 KB (reserved), 9 KB (used), 27 KB (free)
+Firmware Scratch Size       : 4096 B (total), 304 B (used), 3792 B (free)
+Runtime SBI Version         : 3.0
+Standard SBI Extensions     : ipi,pmu,sse,hsm,rfnc,fwft,time,mpxy,base,legacy,dbcn
+Experimental SBI Extensions : none
+
+Domain0 Name                : root
+Domain0 Init Order          : 0xffffffff
+Domain0 Boot HART           : 0
+Domain0 HARTs               : 0x0*
+Domain0 Region00            : 0x80080000-0x8008ffff M: (F,R,W) S/U: ()
+Domain0 Region01            : 0x80000000-0x8007ffff M: (F,R,X) S/U: ()
+Domain0 Region02            : 0x10000000-0x10000fff M: (I,R,W) S/U: (R,W)
+Domain0 Region03            : 0x02000000-0x0200ffff M: (I,R,W) S/U: ()
+Domain0 Region04            : 0x00000000-0xffffffff M: () S/U: (R,W,X)
+Domain0 Next Address        : 0x80400000
+Domain0 Next Arg1           : 0x83e00000
+Domain0 Next Mode           : S-mode
+Domain0 SysReset            : yes
+Domain0 SysSuspend          : yes
+
+Boot HART ID                : 0
+Boot HART Domain            : root
+Boot HART Priv Version      : v1.12
+Boot HART Base ISA          : rv32ima
+Boot HART ISA Extensions    : zicntr
+Boot HART PMP Count         : 0
+Boot HART PMP Granularity   : 0 bits
+Boot HART PMP Address Bits  : 0
+Boot HART MHPM Info         : 0 (0x00000000)
+Boot HART Debug Triggers    : 0 triggers
+Boot HART MIDELEG           : 0x00000222
+Boot HART MEDELEG           : 0x0000b109
+[    0.000000] Linux version 6.1.0-rc2 (phil@enigma) (riscv32-buildroot-linux-gnu-gcc.br_real (Buildroot 2024.11-rc1-14-g575d971820) 12.4.0, GNU ld (GNU Binutils) 2.42) #1 SMP Wed Nov 20 17:26:11 CET 2024
+[    0.000000] OF: fdt: Ignoring memory range 0x80000000 - 0x80400000
+[    0.000000] Machine model: Kakao SOC (simulation)
+[    0.000000] earlycon: liteuart0 at I/O port 0x0 (options '')
+[    0.000000] Malformed early option 'console'
+[    0.000000] earlycon: liteuart0 at MMIO 0xf0001000 (options '')
+[    0.000000] printk: bootconsole [liteuart0] enabled
+[    0.000000] Zone ranges:
+[    0.000000]   Normal   [mem 0x0000000080400000-0x0000000083ffffff]
+[    0.000000] Movable zone start for each node
+[    0.000000] Early memory node ranges
+[    0.000000]   node   0: [mem 0x0000000080400000-0x0000000083ffffff]
+[    0.000000] Initmem setup node 0 [mem 0x0000000080400000-0x0000000083ffffff]
+[    0.000000] SBI specification v3.0 detected
+[    0.000000] SBI implementation ID=0x1 Version=0x10009
+[    0.000000] SBI TIME extension detected
+[    0.000000] SBI IPI extension detected
+[    0.000000] SBI RFENCE extension detected
+[    0.000000] SBI HSM extension detected
+[    0.000000] riscv: base ISA extensions aim
+[    0.000000] riscv: ELF capabilities aim
+[    0.000000] percpu: Embedded 10 pages/cpu s11476 r8192 d21292 u40960
+[    0.000000] Built 1 zonelists, mobility grouping on.  Total pages: 15240
+[    0.000000] Kernel command line: console=liteuart earlycon=liteuart,0xf0001000
+[    0.000000] Dentry cache hash table entries: 8192 (order: 3, 32768 bytes, linear)
+[    0.000000] Inode-cache hash table entries: 4096 (order: 2, 16384 bytes, linear)
+[    0.000000] mem auto-init: stack:all(zero), heap alloc:off, heap free:off
+[    0.000000] Memory: 43380K/61440K available (6835K kernel code, 592K rwdata, 1351K rodata, 227K init, 264K bss, 18060K reserved, 0K cma-reserved)
+[    0.000000] SLUB: HWalign=64, Order=0-3, MinObjects=0, CPUs=1, Nodes=1
+[    0.000000] rcu: Hierarchical RCU implementation.
+[    0.000000] rcu: 	RCU restricting CPUs from NR_CPUS=32 to nr_cpu_ids=1.
+[    0.000000] rcu: RCU calculated value of scheduler-enlistment delay is 10 jiffies.
+[    0.000000] rcu: Adjusting geometry for rcu_fanout_leaf=16, nr_cpu_ids=1
+[    0.000000] NR_IRQS: 64, nr_irqs: 64, preallocated irqs: 0
+[    0.000000] riscv-intc: 32 local interrupts mapped
+[    0.000000] rcu: srcu_init: Setting srcu_struct sizes based on contention.
+[    0.000000] riscv-timer: riscv_timer_init_dt: Registering clocksource cpuid [0] hartid [0]
+[    0.000000] clocksource: riscv_clocksource: mask: 0xffffffffffffffff max_cycles: 0xb11fd3bfb, max_idle_ns: 440795203732 ns
+[    0.000054] sched_clock: 64 bits at 48MHz, resolution 20ns, wraps every 4398046511096ns
+[    0.006149] Console: colour dummy device 80x25
+[    0.007733] Calibrating delay loop (skipped), value calculated using timer frequency.. 96.00 BogoMIPS (lpj=480000)
+[    0.008993] pid_max: default: 32768 minimum: 301
+[    0.018387] Mount-cache hash table entries: 1024 (order: 0, 4096 bytes, linear)
+[    0.019871] Mountpoint-cache hash table entries: 1024 (order: 0, 4096 bytes, linear)
+[    0.108385] ASID allocator disabled (0 bits)
+[    0.117066] rcu: Hierarchical SRCU implementation.
+[    0.117850] rcu: 	Max phase no-delay instances is 1000.
+[    0.139757] smp: Bringing up secondary CPUs ...
+[    0.140542] smp: Brought up 1 node, 1 CPU
+[    0.159844] devtmpfs: initialized
+[    0.202499] clocksource: jiffies: mask: 0xffffffff max_cycles: 0xffffffff, max_idle_ns: 19112604462750000 ns
+[    0.203930] futex hash table entries: 256 (order: 2, 16384 bytes, linear)
+[    0.261674] NET: Registered PF_NETLINK/PF_ROUTE protocol family
+[    0.268047] DMA: preallocated 128 KiB GFP_KERNEL pool for atomic allocations
+[    0.728465] SCSI subsystem initialized
+[    0.732853] usbcore: registered new interface driver usbfs
+[    0.737037] usbcore: registered new interface driver hub
+[    0.739471] usbcore: registered new device driver usb
+[    0.747058] pps_core: LinuxPPS API ver. 1 registered
+[    0.747800] pps_core: Software ver. 5.3.6 - Copyright 2005-2007 Rodolfo Giometti <giometti@linux.it>
+[    0.749424] PTP clock support registered
+[    0.756612] FPGA manager framework
+[    0.760039] Advanced Linux Sound Architecture Driver Initialized.
+[    0.788887] clocksource: Switched to clocksource riscv_clocksource
+[    1.274142] NET: Registered PF_INET protocol family
+[    1.284837] IP idents hash table entries: 2048 (order: 2, 16384 bytes, linear)
+[    1.311203] tcp_listen_portaddr_hash hash table entries: 512 (order: 0, 4096 bytes, linear)
+[    1.313114] Table-perturb hash table entries: 65536 (order: 6, 262144 bytes, linear)
+[    1.314355] TCP established hash table entries: 1024 (order: 0, 4096 bytes, linear)
+[    1.316091] TCP bind hash table entries: 1024 (order: 2, 16384 bytes, linear)
+[    1.320092] TCP: Hash tables configured (established 1024 bind 1024)
+[    1.325540] UDP hash table entries: 256 (order: 1, 8192 bytes, linear)
+[    1.328645] UDP-Lite hash table entries: 256 (order: 1, 8192 bytes, linear)
+[    1.335669] NET: Registered PF_UNIX/PF_LOCAL protocol family
+[    1.370590] Unpacking initramfs...
+[    1.489651] workingset: timestamp_bits=30 max_order=14 bucket_order=0
+[    1.799478] Block layer SCSI generic (bsg) driver version 0.4 loaded (major 251)
+[    1.800438] io scheduler mq-deadline registered
+[    1.801110] io scheduler kyber registered
+[    7.213463] f0001000.serial: ttyLXU0 at MMIO 0x0 (irq = 0, base_baud = 0) is a liteuart
+[    7.215269] printk: console [liteuart0] enabled
+[    7.215269] printk: console [liteuart0] enabled
+[    7.216327] printk: bootconsole [liteuart0] disabled
+[    7.216327] printk: bootconsole [liteuart0] disabled
+[    7.280320] usbcore: registered new interface driver r8152
+[    7.285344] usbcore: registered new interface driver cdc_acm
+[    7.286139] cdc_acm: USB Abstract Control Model driver for USB modems and ISDN adapters
+[    7.290686] usbcore: registered new interface driver usb-storage
+[    7.296140] usbcore: registered new interface driver ftdi_sio
+[    7.299126] usbserial: USB Serial support registered for FTDI USB Serial Device
+[    7.304054] UDC core: g_audio: couldn't find an available UDC
+[    7.386742] mousedev: PS/2 mouse device common for all mice
+[    7.394549] i2c_dev: i2c /dev entries driver
+[    7.434169] usbcore: registered new interface driver usbhid
+[    7.435013] usbhid: USB HID core driver
+[    7.535262] usbcore: registered new interface driver snd-usb-audio
+[    7.572676] NET: Registered PF_INET6 protocol family
+[    7.692661] Segment Routing with IPv6
+[    7.696324] In-situ OAM (IOAM) with IPv6
+[    7.700806] sit: IPv6, IPv4 and MPLS over IPv4 tunneling driver
+[    7.730872] NET: Registered PF_PACKET protocol family
+[    7.802473] ALSA device list:
+[    7.803228]   No soundcards found.
+[   12.514172] Freeing initrd memory: 8192K
+[   12.554956] Freeing unused kernel image (initmem) memory: 224K
+[   12.555924] Kernel memory protection not selected by kernel config.
+[   12.556803] Run /init as init process
+mount: mounting /dev/mmcblk0p3 on /home failed: No such file or directory
+mount: mounting /dev/mmcblk0p4 on /opt/ark failed: No such file or directory
+Saving 256 bits of non-creditable seed for next boot
+Starting syslogd: OK
+Running sysctl: OK
+Starting network: ip: SIOCGIFFLAGS: No such device
+FAIL
+Starting crond: OK
+Starting dropbear sshd: OK
+Starting telnetd: OK
+
+Welcome to Buildroot
+kakao login: root
+
+  _____ _____ _____ _____ _____
+ |     /     |     /     |  .  |
+ |_____\__:__|_____\__:__|_____|
+    L     I     N     U     X
+
+ 32-bit RISC-V Linux running on LiteX / VexRiscv-SMP with USB host support.
+
+ Welcome to Kakao Linux. Type 'hallo' and press enter to view a tutorial.
+
+[01;32mroot@kakao[00m:[01;34m~[00m# uname -a
+Linux kakao 6.1.0-rc2 #1 SMP Wed Nov 20 17:26:11 CET 2024 riscv32 GNU/Linux
+[01;32mroot@kakao[00m:[01;34m~[00m# cat /proc/cpuinfo
+processor	: 0
+hart		: 0
+isa		: rv32ima
+mmu		: sv32
+mvendorid	: 0x0
+marchid		: 0x0
+mimpid		: 0x0
+
+[01;32mroot@kakao[00m:[01;34m~[00m# free
+              total        used        free      shared  buff/cache   available
+Mem:          51796        4584       39688        7252        7524       38576
+Swap:             0           0           0
+[01;32mroot@kakao[00m:[01;34m~[00m# ls /
+[1;34mbin[m           [1;34mhome[m          [1;36mlinuxrc[m       [1;34mproc[m          [1;34msys[m
+[0;0mcrond.reboot[m  [1;32minit[m          [1;34mmedia[m         [1;34mroot[m          [1;34mtmp[m
+[1;34mdev[m           [1;34mlib[m           [1;34mmnt[m           [1;34mrun[m           [1;34musr[m
+[1;34metc[m           [1;36mlib32[m         [1;34mopt[m           [1;34msbin[m          [1;34mvar[m
+[01;32mroot@kakao[00m:[01;34m~[00m# echo 6*7 | bc
+42
+[01;32mroot@kakao[00m:[01;34m~[00m# 

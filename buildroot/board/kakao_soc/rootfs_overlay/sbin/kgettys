@@ -1,0 +1,10 @@
+#!/bin/sh
+# A login on every console after the first that this machine has: the
+# Kakao SOC's terminals are ttyS1 and on (Super with a digit, or with
+# Left and Right, changes between them). A serial port that is not
+# there has type 0.
+for n in 1 2 3 4 5 6 7 8 9; do
+	t=ttyS$n
+	[ "$(cat /sys/class/tty/$t/type 2>/dev/null)" -gt 0 ] 2>/dev/null || continue
+	( while :; do /sbin/getty -L $t 0 linux; sleep 1; done ) &
+done

@@ -1,15 +1,38 @@
-# Kakao Linux
+# Kakao
 
-Kakao is a Linux distribution for Machdyne / Lone Dynamics FPGA computers. At the moment it is essentially a buildroot configuration with extra packages that makes certain assumptions about the hardware and MicroSD card partition layout.
+Kakao is a set of operating systems for Machdyne / Lone Dynamics FPGA computers: each is a distribution or a port of a system to the Kakao SOC, a computer for the FPGA with CPUs of its own.
 
-The goal of Kakao is to provide a minimal practical environment with access to useful timeless applications.
+| System | CPU | Status |
+| ------ | --- | ------ |
+| **Kakao Linux (Buildroot)** | rv32 | Works. Released for the LiteX VexRiscv SOC (the boards listed below); boots on the Kakao SOC with kakao32 on the Sergei ML2, not released there yet. |
+| **Kakao Linux (Debian)** | rv64 | In progress. kakao64 boots Linux with a small root file system on the SD card in simulation; not yet on a board, and Debian itself has not run yet. See [soc/docs/kakao64.md](soc/docs/kakao64.md). |
+| **Kakao Plan 9** | rv64 | Planned. |
+| **Kakao NetBSD** | rv64 | Planned. |
 
-This repo contains everything necessary to build Kakao from source, the steps described here can replace the buildroot steps from the individual board repos.
+## The Kakao SOC
 
-Kakao can be configured to either:
+The hardware all of them are for is in [soc/](soc/README.md). To software it looks like QEMU's RISC-V `virt` machine (CLINT, PLIC, 16550 consoles, virtio disk and network), so a system that runs there needs little or nothing changed to run here: the mainline Linux kernel and OpenSBI are used as they are.
+
+  - **kakao32**: RV32IMA with M, S and U modes and Sv32. Runs Kakao Linux (Buildroot).
+  - **kakao64**: RV64IMAC with Sv39 and, with the firmware's help, F and D: what Debian's riscv64 port is built for. For the boards with 512 MB of memory and an ECP5 45F or larger.
+  - An I/O processor beside the CPU is the text terminals on the monitor (with a USB keyboard and mouse) and the virtio devices: the SD card as a disk, Ethernet.
+
+It is built for Sergei, Mozart, Lakritz, Konfekt and Klinge ([soc/boards](soc/boards/README.md)) and is not released yet.
+
+# Kakao Linux (Buildroot, rv32)
+
+Kakao Linux is essentially a buildroot configuration with extra packages that makes certain assumptions about the hardware and MicroSD card partition layout.
+
+Its goal is to provide a minimal practical environment with access to useful timeless applications.
+
+This repo contains everything necessary to build it from source, the steps described here can replace the buildroot steps from the individual board repos.
+
+It can be configured to either:
 
   1. Keep a small rootfs (<8MB) in RAM and optionally mount additional filesystems later.
   2. Mount rootfs from an ext2 partition on the MicroSD card.
+
+The rest of this README is about Kakao Linux on the LiteX VexRiscv SOC, which stays supported. On the Kakao SOC: [soc/README.md](soc/README.md).
 
 ## Supported Boards
 

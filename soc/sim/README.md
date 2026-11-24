@@ -1,0 +1,163 @@
+# Linux on kakao32, in simulation
+
+`sim_top.v` is kakao32 with a memory, a CLINT, a 16550 and a LiteX
+UART: enough of a machine for OpenSBI and Linux. `sim_main.cpp` runs
+it under Verilator, loads the binaries, prints the console and can
+type a script at it.
+
+It boots the Kakao image in `../../images` as it is: OpenSBI 1.9
+(unmodified, generic platform), then the prebuilt Linux 6.1 kernel and
+root file system, to the login prompt; logging in as root and running
+a few commands (`uname -a`, `cat /proc/cpuinfo`, `free`, `ls /`,
+`echo 6*7 | bc`) ends at 552 million clock cycles: 11.5 simulated
+seconds at 48 MHz, some five minutes of simulation. That is 249
+million instructions at 2.21 cycles each, with this memory, which
+answers every request the next cycle; a real cache and memory will
+cost more.
+
+The prebuilt kernel has only the LiteX UART for a console (no 8250, no
+SBI console), which is why the simulated machine has one. A kernel
+built from `buildroot/board/qemu/linux.config` uses the 16550.
+
+## Running it
+
+Needs Verilator, dtc and a RISC-V Linux gcc for OpenSBI
+(`gcc-riscv64-linux-gnu` builds RV32 OpenSBI).
+
+```
+git clone https://github.com/riscv-software-src/opensbi
+make -C opensbi PLATFORM=generic CROSS_COMPILE=riscv64-linux-gnu- \
+    PLATFORM_RISCV_XLEN=32 PLATFORM_RISCV_ISA=rv32ima_zicsr_zifencei \
+    FW_TEXT_START=0x81e00000 FW_JUMP_ADDR=0x80000000 \
+    FW_JUMP_FDT_ADDR=0x81f00000 FW_PAYLOAD=n
+
+make boot OPENSBI=opensbi/build/platform/generic/firmware/fw_jump.bin
+make boot OPENSBI=... TYPE=script.txt     # log in as root and run commands
+```
+
+Memory, as `make boot` loads it (64 MB at 0x8000_0000):
+
+| Address | What |
+|---|---|
+| 0x8000_0000 | the kernel (`Image`) |
+| 0x8100_0000 | the root file system (`rootfs.cpio`) |
+| 0x81e0_0000 | OpenSBI (`fw_jump.bin`) |
+| 0x81f0_0000 | the device tree (`kakao-sim.dts`) |
+
+A script is typed a line at a time, each line when the console has
+gone quiet at a prompt (`login: `, `# ` or `$ `); the simulation ends
+after the last line's answer.
+
+## Linux 6.6.18 and several terminals
+
+The prebuilt kernel knows one console. The SOC's own kernel
+(`../boards/README.md` says how it is built) has the 8250 driver and
+the PLIC, and with it each terminal is a console with a login:
+
+```
+make obj/simsoc_t4 SOCBIN=simsoc_t4 \
+    SOCG="-GKCACHE=1 -GI_KB=64 -GTERMINAL=1 -GTERMS=4 -GRXPIN=1"
+python3 ../tools/mkdts.py --model sim --mem 64 --consoles 4 \
+    --initrd 0x81000000 0x81800000 > obj/t4.dts
+dtc -I dts -O dtb -o obj/t4.dtb obj/t4.dts
+make boot SIM=simsoc_t4 OPENSBI=... IMAGE=<Image> INITRD=<rootfs.cpio> \
+    DTB=obj/t4.dtb TYPE=script.txt
+```
+
+`RXPIN` types the script at UART 0's pin, where the 8250 driver
+listens. At the end the screen of every terminal is printed: the
+first's with what the script did, the others' with their logins.
+With `-GMEM_MB=32` and `--mem 32` it is a board with 32 MB.
+
+In a script, `\e` is ESC, and what follows it comes at once, as a
+terminal sends a key (`\e[A` is the up arrow). With `SIMC=-DSIMKEYS` a
+line `@2 ...` is typed at terminal 2 instead (put into its console's
+receiver, as the I/O processor would).
+
+## The disk and the network
+
+`-GVIRTIO=2` adds the virtio slots with what the boards have behind
+them: Zeitlos's SPI master with a model of an SD card (`sd_card.v`),
+and its RMII MAC with a model of the cable's other end
+(`rmii_peer.v`, and in `sim_main.cpp` a host at 10.0.0.1 that answers
+ARP and pings).
+
+```
+make obj/simsoc_n SOCBIN=simsoc_n SIMC="-DSIMKEYS -DSIMSD -DSIMNET" \
+    SOCG="-GKCACHE=1 -GI_KB=64 -GTERMINAL=1 -GTERMS=4 -GRXPIN=1 -GVIRTIO=2"
+python3 ../tools/mkdts.py --model sim --mem 64 --consoles 4 --virtio 2 \
+    --initrd 0x81000000 0x81800000 > obj/v.dts
+dtc -I dts -O dtb -o obj/v.dtb obj/v.dts
+obj/simsoc_n +load=<fw_jump.bin>@81e00000 +load=<Image>@80000000 \
+    +load=<rootfs.cpio>@81000000 +load=obj/v.dtb@81f00000 \
+    +type=script.txt +sd=card.img +sdout=after.img +linger=60000000
+```
+
+`+sd` is the card's contents (16 MB, `-GSD_MB=`; a partition table and
+a FAT partition made with mtools will do) and `+sdout` what they are
+at the end, to compare with what Linux said it wrote. `+linger` is how
+long to go on after the script's last line: `reboot` there ends the
+run with "the machine was RESET". A script for all of it:
+
+```
+root
+ip link set eth0 address 02:00:00:00:00:02
+ip addr add 10.0.0.2/24 dev eth0 && ip link set eth0 up
+ping -c 3 10.0.0.1
+mount /dev/vda1 /mnt && ls /mnt && umount /mnt
+reboot
+```
+
+`EXTRA=-DVDEBUG SOCD="-DK_IOP_LOG -DK_VIRTIO_LOG"` writes the disk's
+requests and the virtio registers' traffic into the log.
+
+## The SOC, with the cache
+
+`obj/simsoc` (`make boot SIM=simsoc ...`, run from this directory) is
+`sim_soc.v`: `rtl/kakao_soc.v` -- the CPU, Zeitlos's unified cache and
+the bus -- with a main memory that takes its time: 6 cycles for a read
+of a new 16-byte block, 1 for the rest of it, 10 for a write. (Zeitlos
+measures 10 for a random read of its DDR3 controller, and a write is a
+read and a write there, so the real thing is slower still.)
+
+The same boot, login and script:
+
+| | cycles | cycles an instruction | at 48 MHz |
+|---|---|---|---|
+| CPU on an ideal memory (`obj/sim`) | 552 million | 2.21 | 11.5 s |
+| SOC, 32 KB cache (`make CACHE_KB=32`) | 1,340 million | 5.39 | 28 s |
+| SOC, 8 KB cache | 1,748 million | 7.07 | 36 s |
+
+So the memory system, not the CPU, sets the speed, by a wide margin.
+The cache is the one Zeitlos uses on its 25F boards: direct-mapped, one
+array for instructions and data, 16-byte lines, write-through. Linux
+wants more: separate instruction and data caches, two ways, longer
+lines.
+
+## kakao64
+
+`make sim64` builds `obj/simsoc64`: the SOC with kakao64, 256 MB, and a
+boot stub that enters OpenSBI at 0x8000_0000 with the device tree at
+0x87f0_0000 (`obj/boot64`). What it runs:
+
+```
+make -C fptest                # riscv-tests' rv64uf and rv64ud as one image
+obj/simsoc64 +load=<fw_jump.bin>@80000000 +load=fptest/obj/fptest.bin@80200000 \
+    +load=<dtb>@87f00000 +max=900000000
+```
+
+ends with a dot for each program and `ALL PASS`, the firmware
+(`../fw/opensbi`) doing the arithmetic. `make -C fptest qemu
+OPENSBI=<fw_jump.bin>` runs the same image on QEMU's `virt`, whose
+floating point is its own.
+
+Linux: the same with `+load=<Image>@80200000` and a card
+(`SIMC="-DCPU64 -DSIMSD -DSIMNET"`, `-GVIRTIO=2`, `+sd=<image>`), whose
+second partition is the root file system. `SOCD=-DK_TRAPS` prints every
+trap kakao64 takes, and with `+kw` every register it writes.
+
+The card's size is `SOCD=-DSIM_SD_MB=<n>`. A card larger than the
+simulation can hold (about 500 MB) is two windows of it,
+`-DSIM_SD_LOW_MB=`, `-DSIM_SD_HI_MB=` and `-DSIM_SD_HILEN_MB=`; the
+rest reads as zeros (`sd_card.v`). `+sd=` is then the two windows one
+after the other.

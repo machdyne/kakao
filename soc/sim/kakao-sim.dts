@@ -1,0 +1,86 @@
+/dts-v1/;
+
+/* The machine sim_top.v models: enough for OpenSBI and Linux. The
+ * 16550 is OpenSBI's console; the LiteX UART is the prebuilt Kakao
+ * kernel's (it has no 8250 driver and no SBI console). */
+
+/ {
+	#address-cells = <1>;
+	#size-cells = <1>;
+	compatible = "machdyne,kakao-sim";
+	model = "Kakao SOC (simulation)";
+
+	chosen {
+		bootargs = "console=liteuart earlycon=liteuart,0xf0001000";
+		stdout-path = "/soc/serial@10000000";
+		linux,initrd-start = <0x81000000>;
+		linux,initrd-end = <0x81800000>;
+	};
+
+	cpus {
+		#address-cells = <1>;
+		#size-cells = <0>;
+		timebase-frequency = <48000000>;
+
+		cpu@0 {
+			device_type = "cpu";
+			compatible = "riscv";
+			reg = <0>;
+			status = "okay";
+			riscv,isa = "rv32ima";
+			mmu-type = "riscv,sv32";
+
+			intc: interrupt-controller {
+				#interrupt-cells = <1>;
+				interrupt-controller;
+				compatible = "riscv,cpu-intc";
+			};
+		};
+	};
+
+	memory@80000000 {
+		device_type = "memory";
+		reg = <0x80000000 0x04000000>;
+	};
+
+	soc {
+		#address-cells = <1>;
+		#size-cells = <1>;
+		compatible = "simple-bus";
+		ranges;
+
+		test@100000 {
+			compatible = "sifive,test1", "sifive,test0", "syscon";
+			reg = <0x00100000 0x1000>;
+		};
+
+		clint@2000000 {
+			compatible = "sifive,clint0", "riscv,clint0";
+			reg = <0x02000000 0x10000>;
+			interrupts-extended = <&intc 3 &intc 7>;
+		};
+
+		plic: interrupt-controller@c000000 {
+			compatible = "sifive,plic-1.0.0", "riscv,plic0";
+			reg = <0x0c000000 0x600000>;
+			#interrupt-cells = <1>;
+			#address-cells = <0>;
+			interrupt-controller;
+			interrupts-extended = <&intc 11 &intc 9>;
+			riscv,ndev = <15>;
+		};
+
+		serial@10000000 {
+			compatible = "ns16550a";
+			reg = <0x10000000 0x100>;
+			clock-frequency = <3686400>;
+			interrupt-parent = <&plic>;
+			interrupts = <10>;
+		};
+
+		serial@f0001000 {
+			compatible = "litex,liteuart";
+			reg = <0xf0001000 0x100>;
+		};
+	};
+};

@@ -1,0 +1,6 @@
+[submodule "soc/ext/zeitlos"]
+	path = soc/ext/zeitlos
+	url = https://github.com/machdyne/zeitlos
+[submodule "soc/ext/riscv-tests"]
+	path = soc/ext/riscv-tests
+	url = https://github.com/riscv-software-src/riscv-tests

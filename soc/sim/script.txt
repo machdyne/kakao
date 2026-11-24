@@ -1,0 +1,6 @@
+root
+uname -a
+cat /proc/cpuinfo
+free
+ls /
+echo 6*7 | bc

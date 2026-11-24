@@ -108,11 +108,18 @@ VERILATE = verilator --binary --timing -Wno-fatal -Wno-WIDTH -Wno-UNUSED \
 	-GFAST_MUL=$(FAST_MUL) -GBTFN=$(BTFN) -GBTB_BITS=$(BTB_BITS) -GFAST_XLATE=$(FAST_XLATE) -GTRACE=$(TRACE)
 SRC = $(CURDIR)/tb_kakao64.v $(abspath $(RTL))
 
-build/tb_l%/sim: tb_kakao64.v $(RTL)
+# (the core's options are compiled in: build/options changes when they do)
+OPTS = $(FAST_MUL) $(BTFN) $(BTB_BITS) $(FAST_XLATE) $(TRACE)
+build/options: FORCE
+	@mkdir -p build
+	@echo "$(OPTS)" | cmp -s - $@ || echo "$(OPTS)" > $@
+FORCE:
+
+build/tb_l%/sim: tb_kakao64.v $(RTL) build/options
 	@mkdir -p build
 	@$(VERILATE) -GLAT=$* -Mdir $(CURDIR)/build/tb_l$* $(SRC) > build/tb_l$*.log 2>&1 || { tail build/tb_l$*.log; exit 1; }
 
-build/tb_rl%/sim: tb_kakao64.v $(RTL)
+build/tb_rl%/sim: tb_kakao64.v $(RTL) build/options
 	@mkdir -p build
 	@$(VERILATE) -GLAT=12 -GRANDLAT=1 -GBUSY=1 -GSEED=$* -Mdir $(CURDIR)/build/tb_rl$* $(SRC) > build/tb_rl$*.log 2>&1 || { tail build/tb_rl$*.log; exit 1; }
 

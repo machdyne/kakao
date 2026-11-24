@@ -85,12 +85,16 @@ module tb_kakao64;
 	reg [1023:0] hexfile;
 	reg [31:0] tohost;
 
-	reg        p;                    // a request is pending
-	integer    c;                    // cycles until its ack
-	reg [31:0] a;
-	reg [63:0] dd;
-	reg        w;
-	reg  [7:0] s;
+	// The memory: up to two requests outstanding, answered in the order
+	// they were taken, each LAT (or a random number of) cycles after it
+	// was taken at the earliest. (p, a, dd, w, s: the older; the
+	// younger, if there is one, in p2 and so on.)
+	reg        p, p2;
+	integer    c, c2;                // cycles until its ack, at the earliest
+	reg [31:0] a, a2;
+	reg [63:0] dd, dd2;
+	reg        w, w2;
+	reg  [7:0] s, s2;
 	reg        busy;
 
 	// (the memory is kept in words, as the programs' hex files have it;
@@ -102,12 +106,15 @@ module tb_kakao64;
 	wire [31:0] wv   = (s[3:0] == 4'd0) ? dd[63:32] : dd[31:0];
 
 	assign m_ack  = p && (c == 0);
-	assign m_rdy  = !busy && (!p || m_ack);
+	assign m_rdy  = !busy && (!p2 || m_ack);
 	assign m_rdat = dev ? 64'd0 : { mem[widx + 1], mem[widx] };
+
+	wire       tk = m_req && m_rdy;
+	integer    nl;
 
 	always @(posedge clk) begin
 		if (rst) begin
-			p <= 1'b0; c <= 0; busy <= 1'b0;
+			p <= 1'b0; p2 <= 1'b0; c <= 0; c2 <= 0; busy <= 1'b0;
 			irq_level <= 4'd0; mtime <= 64'd0;
 		end else begin
 			mtime <= mtime + 64'd1;
@@ -138,12 +145,22 @@ module tb_kakao64;
 				end
 			end
 			if (p && c != 0) c <= c - 1;
-			if (m_req && m_rdy) begin
-				p <= 1'b1;
-				a <= m_adr; w <= m_we; s <= m_sel; dd <= m_wdat;
-				c <= RANDLAT ? ({$random(seed)} % (LAT + 1)) : LAT;
-			end else if (m_ack) begin
-				p <= 1'b0;
+			if (p2 && c2 != 0) c2 <= c2 - 1;
+			nl = RANDLAT ? ({$random(seed)} % (LAT + 1)) : LAT;
+			if (m_ack) begin
+				// the younger is now the older
+				p <= p2; a <= a2; w <= w2; s <= s2; dd <= dd2;
+				c <= (c2 != 0) ? c2 - 1 : 0;
+				p2 <= 1'b0;
+			end
+			if (tk) begin
+				if (!p || (m_ack && !p2)) begin
+					p <= 1'b1;
+					a <= m_adr; w <= m_we; s <= m_sel; dd <= m_wdat; c <= nl;
+				end else begin
+					p2 <= 1'b1;
+					a2 <= m_adr; w2 <= m_we; s2 <= m_sel; dd2 <= m_wdat; c2 <= nl;
+				end
 			end
 		end
 	end

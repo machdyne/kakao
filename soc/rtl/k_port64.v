@@ -5,7 +5,8 @@
  * A fetch, and a load or store whose byte lanes are all in one half of
  * the doubleword, is one access of the cache's. One that has lanes in
  * both halves (ld, sd, a page table entry) is two, the lower word
- * first. The answer goes to the CPU through a register (below).
+ * first. The answer goes to the CPU through a register, and whether
+ * the CPU's request is taken is a register too (below).
  *
  * This is the way to a 64 bit machine with the cache as it is, not the
  * way it should stay: a doubleword costs two accesses, and the two are
@@ -18,7 +19,7 @@ module k_port64 (
 	input         clk,
 	input         rst,
 
-	// the CPU
+	// the CPU: up to two requests outstanding, answered in order
 	input         m_req,
 	input  [31:0] m_adr,
 	input         m_we,
@@ -38,77 +39,103 @@ module k_port64 (
 	output [31:0] c_wdat,
 	output        c_instr,
 	input         c_rdy,
-	input         c_idle,		// ...and nothing is under way in the cache
 	input         c_ack,
 	input  [31:0] c_rdat
 );
 
-	// One access at a time, and its answer through a register: the CPU
-	// asks (taken when the cache is idle), the cache answers when it
-	// does, and the CPU has that answer the cycle after, when it may ask
-	// again. So neither the cache's answer nor its readiness, which both
-	// come late out of the tag memory's comparison, goes on into the
-	// CPU in the same cycle; that way round was the SOC's longest path
-	// with a 64 bit CPU. It costs a cycle an access, and a fetch every
-	// other cycle at best.
+	// The cache's answer and its readiness both come late out of the tag
+	// memory's comparison, and the way from there on into the CPU in the
+	// same cycle was the SOC's longest path with a 64 bit CPU. So
+	// neither goes there:
 	//
-	// 0: nothing under way; 1: an access of one word; 2: a doubleword's
-	// lower word; 3: its upper word is to be asked for; 4: ...is asked for
-	reg  [2:0] st;
+	// The answer goes through a register (a_*): the CPU has it the
+	// cycle after the cache gave it.
+	//
+	// A request is taken from the CPU whenever the place for one that
+	// waits (h_*) is empty, which is a register. It is shown to the
+	// cache in the same cycle; if the cache takes it, well, and if not,
+	// it waits in h_* and is shown from there until it is taken. A
+	// doubleword waits there in any case, for its upper word.
+	//
+	// The cache takes a request while it answers the one before (a
+	// fetch or load that hits), so on hits there is a request a cycle,
+	// each answered to the CPU two cycles after it asked; the CPU has
+	// two outstanding then.
+	reg        hv;				// a request waits
+	reg        h_hi;			// ...a doubleword's upper word
+	reg [31:2] h_adr;
+	reg        h_we, h_dbl, h_instr;
+	reg  [7:0] h_sel;
+	reg [63:0] h_wdat;
+
+	// what the cache has, not yet answered: 0 nothing (or not ours to
+	// know), 1 a word, 2 a doubleword's lower, 3 its upper
+	reg  [1:0] ck;
 	reg [31:0] lo;				// the lower word read
-	reg [31:3] h_adr;
-	reg        h_we;
-	reg  [3:0] h_sel;
-	reg [31:0] h_wdat;
 	reg        a_v;				// the answer, for the CPU
 	reg [63:0] a_dat;
 
 	// (from the address and m_dbl, not from the lanes: they come late)
-	wire up   = !m_instr && m_adr[2];			// the upper half alone
-	wire idle = (st == 3'd0);
-	wire hi   = (st == 3'd3);
+	wire m_up = !m_instr && !m_dbl && m_adr[2];		// the upper half alone
+	wire h_up = !h_instr && !h_dbl && h_adr[2];
+	wire up   = hv ? (h_hi || h_up) : m_up;
 
-	assign c_req   = idle ? m_req : hi;
-	assign c_adr   = hi ? { h_adr, 3'b100 } : { m_adr[31:2], 2'b00 };
-	assign c_we    = hi ? h_we : m_we;
-	assign c_sel   = hi ? h_sel : m_instr ? 4'b1111 : up ? m_sel[7:4] : m_sel[3:0];
-	assign c_wdat  = hi ? h_wdat : up ? m_wdat[63:32] : m_wdat[31:0];
-	assign c_instr = idle && m_instr;
+	assign c_req   = hv || m_req;
+	assign c_adr   = hv ? { h_adr[31:3], h_hi || (h_adr[2] && !h_dbl), 2'b00 } :
+	                      { m_adr[31:3], m_adr[2] && !m_dbl, 2'b00 };
+	assign c_we    = hv ? h_we : m_we;
+	assign c_sel   = hv ? (h_instr ? 4'b1111 : up ? h_sel[7:4] : h_sel[3:0]) :
+	                      (m_instr ? 4'b1111 : up ? m_sel[7:4] : m_sel[3:0]);
+	assign c_wdat  = hv ? (up ? h_wdat[63:32] : h_wdat[31:0]) :
+	                      (up ? m_wdat[63:32] : m_wdat[31:0]);
+	assign c_instr = hv ? h_instr : m_instr;
 
-	// (c_idle, not c_rdy: nothing of ours is in the cache when st is 0,
-	// so they are the same, but c_rdy has the comparison in it)
-	assign m_rdy  = c_idle && idle;
+	assign m_rdy  = !hv;
 	assign m_ack  = a_v;
 	assign m_rdat = a_dat;
 
+	wire take = c_req && c_rdy;
+	// the kind of what the cache is shown
+	wire      x_dbl = hv ? h_dbl : m_dbl;
+	wire      x_hi  = hv && h_hi;
+
 	always @(posedge clk) begin
 		a_v <= 1'b0;
-		if (rst) st <= 3'd0;
-		else case (st)
-			3'd0: if (m_req && c_idle) begin
-				st     <= m_dbl ? 3'd2 : 3'd1;
-				h_adr  <= m_adr[31:3];
-				h_we   <= m_we;
-				h_sel  <= m_sel[7:4];
-				h_wdat <= m_wdat[63:32];
+
+		if (!hv) begin
+			h_adr   <= m_adr[31:2];
+			h_we    <= m_we;
+			h_dbl   <= m_dbl;
+			h_instr <= m_instr;
+			h_sel   <= m_sel;
+			h_wdat  <= m_wdat;
+		end
+
+		if (rst) begin
+			hv   <= 1'b0;
+			h_hi <= 1'b0;
+			ck   <= 2'd0;
+		end else begin
+			// what waits next: the request not taken, or the upper word
+			// of the doubleword whose lower word was
+			if (!hv) begin
+				hv   <= m_req && (!c_rdy || m_dbl);
+				h_hi <= m_req && c_rdy && m_dbl;
+			end else if (c_rdy) begin
+				if (h_dbl && !h_hi) h_hi <= 1'b1;
+				else begin hv <= 1'b0; h_hi <= 1'b0; end
 			end
-			3'd1: if (c_ack) begin
-				a_v   <= 1'b1;
-				a_dat <= { c_rdat, c_rdat };
-				st    <= 3'd0;
+
+			if (c_ack) begin
+				case (ck)
+					2'd2: lo <= c_rdat;
+					2'd3: begin a_v <= 1'b1; a_dat <= { c_rdat, lo }; end
+					default: begin a_v <= 1'b1; a_dat <= { c_rdat, c_rdat }; end
+				endcase
+				ck <= 2'd0;
 			end
-			3'd2: if (c_ack) begin
-				lo <= c_rdat;
-				st <= 3'd3;
-			end
-			3'd3: if (c_rdy) st <= 3'd4;
-			3'd4: if (c_ack) begin
-				a_v   <= 1'b1;
-				a_dat <= { c_rdat, lo };
-				st    <= 3'd0;
-			end
-			default: st <= 3'd0;
-		endcase
+			if (take) ck <= !x_dbl ? 2'd1 : x_hi ? 2'd3 : 2'd2;
+		end
 	end
 
 endmodule

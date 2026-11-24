@@ -194,7 +194,7 @@ module kakao_soc #(
 			.m_rdy(x_rdy), .m_ack(x_ack), .m_rdat(x_rdat),
 			.c_req(c_req), .c_adr(c_adr), .c_we(c_we), .c_sel(c_sel),
 			.c_wdat(c_wdat), .c_instr(c_instr),
-			.c_rdy(c_rdy), .c_idle(c_idle), .c_ack(c_ack), .c_rdat(c_rdat)
+			.c_rdy(c_rdy), .c_ack(c_ack), .c_rdat(c_rdat)
 		);
 
 	end else begin : c32

@@ -59,12 +59,12 @@ of memory, device tree (`rv64imafdc`, `root=/dev/vda2`) and
 `boot.json`:
 
 ```
-make BOARD=sergei_ml2 CPU64=1 FAST_MUL=0
+make BOARD=sergei_ml2 CPU64=1
 ```
 
-It is for the boards with 512 MB and a 45F. `FAST_MUL=0`: the one-cycle
-multiplier is 32 bits' worth of DSP blocks and does not meet timing at
-64. The card's `/sys/linux` then holds `boot.json`, `kakao.dtb`,
+It is for the boards with 512 MB and a 45F. Its multiplier is four
+16 by 16 DSP blocks used four times over, eight cycles a product
+(`FAST_MUL=0`: 64 steps, no DSP blocks). The card's `/sys/linux` then holds `boot.json`, `kakao.dtb`,
 `fw_jump.bin` (OpenSBI for RV64 with `../fw/opensbi`'s patch) and
 `Image` (`../../buildroot/board/kakao_soc/linux64.config`); the root
 file system is the card's second partition. `../tools/mkdebian.sh`

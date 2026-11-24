@@ -29,7 +29,7 @@
  * and keeps its pipeline:
  *
  *   F  fetch: pc_f to the memory port; the answer goes into a
- *      three-entry instruction queue
+ *      four-entry instruction queue
  *   D  the queue's head: register read, with a bypass from X's write
  *   X  everything else: decode, ALU, branches and jumps, loads, stores
  *      and the atomics (X waits for the answers), multiply and divide,
@@ -37,8 +37,10 @@
  *      finishes
  *
  * ONE memory port for fetches, data and page-table walks: a request is
- * taken on req && rdy, answered by ack (with the data) at the earliest
- * the next cycle, one outstanding, rdy high again in the ack cycle.
+ * taken on req && rdy and answered by ack (with the data) at the
+ * earliest the next cycle. Up to two may be outstanding, and they are
+ * answered in the order they were taken: the fetch after the one on
+ * its way, or X's load or store behind a fetch.
  * Addresses on it are physical. A walk has the port first, then a
  * load or store in X, then a fetch.
  *
@@ -142,24 +144,37 @@ module kakao64 #(
 
 	// fetch
 	reg [63:0] pc_f;				// next address to fetch (virtual)
-	reg        f_out;				// a fetch is outstanding
-	reg        f_kill;				// ...and its answer is to be dropped
 	reg        f_halt;				// a fetch faulted: wait for a redirect
-	reg  [1:0] out_k;				// the outstanding request: 0 fetch, 1 data, 2 walk
-	reg        fo_pt;				// the fetch outstanding was predicted taken
-	reg [30:0] fo_tg;				// ...to here (bits 31:1)
-	reg        fo_po;				// ...by the jump that ends in the word's upper half
-	reg        fo_hi;				// its word is the doubleword's upper half
+	// The requests outstanding: up to two, answered in the order they
+	// were taken (o_*0 is the older). So a fetch can be asked for while
+	// the one before it is still on its way, and a load or store while
+	// a fetch is.
+	reg  [1:0] o_n;					// how many
+	reg  [1:0] f_n;					// ...of them fetches
+	reg  [1:0] o_k0, o_k1;			// what for: 0 fetch, 1 data, 2 walk
+	reg        o_x0, o_x1;			// (a fetch) its answer is to be dropped
+	reg        o_pt0, o_pt1;		// (a fetch) predicted taken
+	reg [30:0] o_tg0, o_tg1;		// ...to here (bits 31:1)
+	reg        o_po0, o_po1;		// ...by the jump that ends in the word's upper half
+	reg        o_hi0, o_hi1;		// its word is the doubleword's upper half
+	wire [1:0] out_k  = o_k0;
+	wire       f_kill = o_x0;
+	wire       fo_pt  = o_pt0;
+	wire [30:0] fo_tg = o_tg0;
+	wire       fo_po  = o_po0;
+	wire       fo_hi  = o_hi0;
+	wire       f_out  = (f_n != 2'd0);
+	wire       d_ack  = m_ack && (o_k0 == 2'd1);	// X's load or store is answered
 
-	// the instruction queue: three entries in a ring, all sequential
+	// the instruction queue: four entries in a ring, all sequential
 	// from d_pc (written at iq_wp, read at iq_rp)
-	reg  [1:0] iq_cnt;
+	reg  [2:0] iq_cnt;
 	reg  [1:0] iq_rp, iq_wp;
-	reg [31:0] iq_i0, iq_i1, iq_i2;
-	reg        iq_f0, iq_f1, iq_f2;	// not an instruction: its fetch page-faulted
-	reg        iq_p0, iq_p1, iq_p2;	// predicted taken: the next entry is not at +4
-	reg [30:0] iq_t0, iq_t1, iq_t2;	// ...but here
-	reg        iq_o0, iq_o1, iq_o2;	// ...after the jump that ends in its upper half (or lower)
+	reg [31:0] iq_i0, iq_i1, iq_i2, iq_i3;
+	reg        iq_f0, iq_f1, iq_f2, iq_f3;	// not an instruction: its fetch page-faulted
+	reg        iq_p0, iq_p1, iq_p2, iq_p3;	// predicted taken: the next entry is not at +4
+	reg [30:0] iq_t0, iq_t1, iq_t2, iq_t3;	// ...but here
+	reg        iq_o0, iq_o1, iq_o2, iq_o3;	// ...after the jump that ends in its upper half (or lower)
 	reg [63:0] d_pc;				// address of the head
 
 	// X
@@ -642,7 +657,7 @@ module kakao64 #(
 	wire x_fin_nm = is_muldiv ? md_ready :
 	                (is_csr || is_sc) ? !x_first : 1'b1;
 	wire x_last = !amo_rmw || x_ph;		// this request is its last
-	wire x_fin  = x_mem    ? (x_issued && m_ack && x_last) : x_fin_nm;
+	wire x_fin  = x_mem    ? (x_issued && d_ack && x_last) : x_fin_nm;
 
 	wire x_retire = x_ok && x_fin;
 
@@ -779,16 +794,17 @@ module kakao64 #(
 	// The queue holds words; instructions are 16 or 32 bits and begin at
 	// either half of one. D's instruction is at d_pc: in the head word
 	// (w0), or begun in its upper half and ended in the next word (w1).
-	wire [31:0] w0   = iq_rp[1] ? iq_i2 : iq_rp[0] ? iq_i1 : iq_i0;
-	wire        w0_f = iq_rp[1] ? iq_f2 : iq_rp[0] ? iq_f1 : iq_f0;
-	wire        w0_p = iq_rp[1] ? iq_p2 : iq_rp[0] ? iq_p1 : iq_p0;
-	wire        w0_o = iq_rp[1] ? iq_o2 : iq_rp[0] ? iq_o1 : iq_o0;
-	wire [30:0] w0_t = iq_rp[1] ? iq_t2 : iq_rp[0] ? iq_t1 : iq_t0;
-	wire [31:0] w1   = iq_rp[1] ? iq_i0 : iq_rp[0] ? iq_i2 : iq_i1;
-	wire        w1_f = iq_rp[1] ? iq_f0 : iq_rp[0] ? iq_f2 : iq_f1;
-	wire        w1_p = iq_rp[1] ? iq_p0 : iq_rp[0] ? iq_p2 : iq_p1;
-	wire        w1_o = iq_rp[1] ? iq_o0 : iq_rp[0] ? iq_o2 : iq_o1;
-	wire [30:0] w1_t = iq_rp[1] ? iq_t0 : iq_rp[0] ? iq_t2 : iq_t1;
+	wire [1:0]  iq_r1 = iq_rp + 2'd1;
+	wire [31:0] w0 = iq_rp[1] ? (iq_rp[0] ? iq_i3 : iq_i2) : (iq_rp[0] ? iq_i1 : iq_i0);
+	wire        w0_f = iq_rp[1] ? (iq_rp[0] ? iq_f3 : iq_f2) : (iq_rp[0] ? iq_f1 : iq_f0);
+	wire        w0_p = iq_rp[1] ? (iq_rp[0] ? iq_p3 : iq_p2) : (iq_rp[0] ? iq_p1 : iq_p0);
+	wire        w0_o = iq_rp[1] ? (iq_rp[0] ? iq_o3 : iq_o2) : (iq_rp[0] ? iq_o1 : iq_o0);
+	wire [30:0] w0_t = iq_rp[1] ? (iq_rp[0] ? iq_t3 : iq_t2) : (iq_rp[0] ? iq_t1 : iq_t0);
+	wire [31:0] w1 = iq_r1[1] ? (iq_r1[0] ? iq_i3 : iq_i2) : (iq_r1[0] ? iq_i1 : iq_i0);
+	wire        w1_f = iq_r1[1] ? (iq_r1[0] ? iq_f3 : iq_f2) : (iq_r1[0] ? iq_f1 : iq_f0);
+	wire        w1_p = iq_r1[1] ? (iq_r1[0] ? iq_p3 : iq_p2) : (iq_r1[0] ? iq_p1 : iq_p0);
+	wire        w1_o = iq_r1[1] ? (iq_r1[0] ? iq_o3 : iq_o2) : (iq_r1[0] ? iq_o1 : iq_o0);
+	wire [30:0] w1_t = iq_r1[1] ? (iq_r1[0] ? iq_t3 : iq_t2) : (iq_r1[0] ? iq_t1 : iq_t0);
 
 	wire        d_off  = d_pc[1];
 	wire [15:0] d_p16  = d_off ? w0[31:16] : w0[15:0];
@@ -797,7 +813,7 @@ module kakao64 #(
 	wire [31:0] d_cx;
 	kakao64_cexp cexp_i (.c(d_p16), .i(d_cx));
 
-	wire        d_valid = (iq_cnt != 2'd0) && (!d_span || iq_cnt[1]);
+	wire        d_valid = (iq_cnt != 3'd0) && (!d_span || (iq_cnt[2:1] != 2'd0));
 	wire [31:0] d_instr = d_c ? d_cx : d_span ? { w1[15:0], w0[31:16] } : w0;
 	wire        d_ff2   = d_span && w1_f;			// the fetch of its second half faulted
 	wire        d_ff    = w0_f || d_ff2;
@@ -823,7 +839,7 @@ module kakao64 #(
 		(rd_idx != 5'd0 || x_wfp);
 	(* keep *) wire x_wr_m = x_ok && x_res && x_mem && x_issued && x_last;	// ...when the answer comes
 	(* keep *) wire x_wr_n = x_ok && x_res && !x_mem && x_fin_nm;
-	wire        x_wr    = (m_ack && x_wr_m) || x_wr_n;
+	wire        x_wr    = (d_ack && x_wr_m) || x_wr_n;
 
 	// the register file as of the next edge: W writes at this one, so its
 	// value is taken directly (a register, not X's result logic)
@@ -862,10 +878,10 @@ module kakao64 #(
 	(* keep *) wire d_go_n  = d_valid && !d_bad && !x_redir &&
 		(!x_valid ||
 		 (x_go && !x_bad && !x_mem && x_fin_nm));
-	wire d_go = x_wack ? (d_go_w && m_ack) : d_go_n;
+	wire d_go = x_wack ? (d_go_w && d_ack) : d_go_n;
 	// copies of it for the wide register groups, so that no one net
 	// fans out to all of them (the tools do not duplicate it themselves)
-	(* keep *) wire d_go_i = x_wack ? (d_go_w && m_ack) : d_go_n;	// x_instr
+	(* keep *) wire d_go_i = x_wack ? (d_go_w && d_ack) : d_go_n;	// x_instr
 
 	// BTFN: D's instruction is a jal or a backward branch, so fetch its
 	// target now. Only when X is not waiting for an answer (then d_go is
@@ -896,7 +912,7 @@ module kakao64 #(
 	wire        d_fix2  = d_span && !w0_p;
 	wire [63:0] d_wpc   = { d_pc[63:2], 2'b00 };
 	wire        d_fix   = d_bad && !x_redir;
-	(* keep *) wire d_go_p = x_wack ? (d_go_w && m_ack) : d_go_n;	// x_pc
+	(* keep *) wire d_go_p = x_wack ? (d_go_w && d_ack) : d_go_n;	// x_pc
 	// (checked in every simulation, also those that build as for
 	// synthesis: Verilator defines VERILATOR)
 `ifndef SYNTHESIS
@@ -956,8 +972,8 @@ module kakao64 #(
 	// ============================================================
 
 	// room for a fetch's answer: the queue plus what is in flight stays
-	// at 3, a test on registers alone
-	wire f_room = ({1'b0, iq_cnt} + {2'b0, f_out}) < 3'd3;
+	// at 4, a test on registers alone
+	wire f_room = ({1'b0, iq_cnt} + {2'b0, f_n}) < 4'd4;
 	wire w_busy = (w_st != 3'd0);
 	wire f_want = f_room && !rst && !f_halt && !x_dw;
 
@@ -1038,7 +1054,7 @@ module kakao64 #(
 	wire x_dreq  = x_dq && d_ok && !w_busy;
 	wire f_req   = f_want  && f_ok && !w_busy;
 	wire w_d     = x_dq && !d_ok;		// a walk for X's access
-	wire w_start = (w_d || (f_want && !f_ok)) && !w_busy;
+	wire w_start = (w_d || (f_want && !f_ok && !f_out)) && !w_busy;
 	wire w_req   = (w_st == 3'd1) || (w_st == 3'd3) || (w_st == 3'd5);
 	// what the walk is for
 	wire [63:0] lk_va   = x_dq ? x_va : pc_f;
@@ -1104,12 +1120,13 @@ module kakao64 #(
 		if (rst) begin
 			pc_f <= RESET_PC;
 			d_pc <= RESET_PC;
-			f_out <= 1'b0;
-			f_kill <= 1'b0;
 			f_halt <= 1'b0;
-			out_k <= 2'd0;
+			o_n <= 2'd0;
+			f_n <= 2'd0;
+			o_k0 <= 2'd0; o_k1 <= 2'd0;
+			o_x0 <= 1'b0; o_x1 <= 1'b0;
 			bt_we <= 1'b0;
-			iq_cnt <= 2'd0;
+			iq_cnt <= 3'd0;
 			iq_rp <= 2'd0;
 			iq_wp <= 2'd0;
 			x_valid <= 1'b0;
@@ -1156,7 +1173,33 @@ module kakao64 #(
 		end else begin
 
 			// -- the port --------------------------------------------
-			if (taken) out_k <= w_req ? 2'd2 : x_dreq ? 2'd1 : 2'd0;
+			// (the older goes when it is answered; the new one is the
+			// only one then, or else the younger)
+			if (m_ack) begin
+				o_k0 <= o_k1; o_x0 <= o_x1; o_pt0 <= o_pt1;
+				o_tg0 <= o_tg1; o_po0 <= o_po1; o_hi0 <= o_hi1;
+			end
+			if (taken) begin
+				if (o_n == {1'b0, m_ack}) begin
+					o_k0 <= w_req ? 2'd2 : x_dreq ? 2'd1 : 2'd0; o_x0 <= 1'b0;
+					o_pt0 <= bt_hit; o_tg0 <= bt_tg; o_po0 <= bt_po; o_hi0 <= pc_f[2];
+				end else begin
+					o_k1 <= w_req ? 2'd2 : x_dreq ? 2'd1 : 2'd0; o_x1 <= 1'b0;
+					o_pt1 <= bt_hit; o_tg1 <= bt_tg; o_po1 <= bt_po; o_hi1 <= pc_f[2];
+				end
+			end
+			o_n <= o_n + {1'b0, taken} - {1'b0, m_ack};
+			f_n <= f_n + {1'b0, f_taken} - {1'b0, f_ack};
+			// a redirect: every fetch still to come back is from the old
+			// path, the one taken in this cycle too
+			if (x_redir || d_red || d_fix) begin
+				o_x0 <= 1'b1; o_x1 <= 1'b1;
+			end
+`ifndef SYNTHESIS
+			if (taken && o_n == 2'd2 && !m_ack) begin
+				$display("kakao64: a third request outstanding"); $finish;
+			end
+`endif
 
 			// -- retire ------------------------------------------------
 			// (an instruction that writes either half of minstret does
@@ -1288,7 +1331,7 @@ module kakao64 #(
 					end
 				end
 				// an AMO's read is answered: now its write
-				if (x_issued && m_ack && !x_last) begin
+				if (x_issued && d_ack && !x_last) begin
 					amo_q    <= ld_out;
 					x_ph     <= 1'b1;
 					x_issued <= 1'b0;
@@ -1386,76 +1429,64 @@ module kakao64 #(
 
 			// -- the queue ---------------------------------------------
 			if (x_redir) begin
-				iq_cnt <= 2'd0;
+				iq_cnt <= 3'd0;
 				iq_rp  <= 2'd0;
 				iq_wp  <= 2'd0;
 				d_pc   <= x_target;
 			end else if (d_red) begin
 				// the head goes to X; the rest is the fall-through path
-				iq_cnt <= 2'd0;
+				iq_cnt <= 3'd0;
 				iq_rp  <= 2'd0;
 				iq_wp  <= 2'd0;
 				d_pc   <= d_tgt;
 			end else if (d_fix) begin
 				// D's instruction stays (one word, or two), no longer
 				// predicted; the rest goes
-				iq_cnt <= d_fix2 ? 2'd2 : 2'd1;
-				iq_wp  <= d_fix2 ? ((iq_rp == 2'd0) ? 2'd2 : iq_rp - 2'd1) :
-				                   ((iq_rp == 2'd2) ? 2'd0 : iq_rp + 2'd1);
-				case (d_fix2 ? ((iq_rp == 2'd2) ? 2'd0 : iq_rp + 2'd1) : iq_rp)
+				iq_cnt <= d_fix2 ? 3'd2 : 3'd1;
+				iq_wp  <= d_fix2 ? iq_rp + 2'd2 : iq_rp + 2'd1;
+				case (d_fix2 ? iq_r1 : iq_rp)
 					2'd0: iq_p0 <= 1'b0;
 					2'd1: iq_p1 <= 1'b0;
-					default: iq_p2 <= 1'b0;
+					2'd2: iq_p2 <= 1'b0;
+					default: iq_p3 <= 1'b0;
 				endcase
 			end else begin
 				if (f_push) begin
 					case (iq_wp)
 						2'd0: begin iq_i0 <= f_word; iq_f0 <= f_fault; iq_p0 <= fo_pt && !f_fault; iq_t0 <= fo_tg; iq_o0 <= fo_po; end
 						2'd1: begin iq_i1 <= f_word; iq_f1 <= f_fault; iq_p1 <= fo_pt && !f_fault; iq_t1 <= fo_tg; iq_o1 <= fo_po; end
-						default: begin iq_i2 <= f_word; iq_f2 <= f_fault; iq_p2 <= fo_pt && !f_fault; iq_t2 <= fo_tg; iq_o2 <= fo_po; end
+						2'd2: begin iq_i2 <= f_word; iq_f2 <= f_fault; iq_p2 <= fo_pt && !f_fault; iq_t2 <= fo_tg; iq_o2 <= fo_po; end
+						default: begin iq_i3 <= f_word; iq_f3 <= f_fault; iq_p3 <= fo_pt && !f_fault; iq_t3 <= fo_tg; iq_o3 <= fo_po; end
 					endcase
-					iq_wp <= (iq_wp == 2'd2) ? 2'd0 : iq_wp + 2'd1;
+					iq_wp <= iq_wp + 2'd1;
 				end
 				// what D's instruction used up goes: a word, none (the
 				// lower of two in one word), or two (a predicted jump
 				// that ends in the second: what follows that is elsewhere)
 				if (d_go) begin
 					if (d_ptw1)
-						iq_rp <= (iq_rp == 2'd0) ? 2'd2 : iq_rp - 2'd1;
+						iq_rp <= iq_rp + 2'd2;
 					else if (d_pop1 || d_pt)
-						iq_rp <= (iq_rp == 2'd2) ? 2'd0 : iq_rp + 2'd1;
+						iq_rp <= iq_rp + 2'd1;
 					d_pc  <= d_pt ? { d_pc[63:32], d_ptg, 1'b0 } : d_pc + (d_c ? 64'd2 : 64'd4);
 				end
-				iq_cnt <= iq_cnt + {1'b0, f_push} -
-					(!d_go ? 2'd0 : d_ptw1 ? 2'd2 : (d_pop1 || d_pt) ? 2'd1 : 2'd0);
+				iq_cnt <= iq_cnt + {2'b0, f_push} -
+					(!d_go ? 3'd0 : d_ptw1 ? 3'd2 : (d_pop1 || d_pt) ? 3'd1 : 3'd0);
 			end
 
 			// -- fetch -------------------------------------------------
 			if (x_redir) begin
 				pc_f   <= { x_target[63:2], 2'b00 };
 				f_halt <= 1'b0;
-				// whatever is still to come back is from the old path
-				f_kill <= (f_out && !f_ack) || f_taken;
 			end else if (d_red) begin
 				pc_f   <= { d_tgt[63:2], 2'b00 };
 				f_halt <= 1'b0;
-				f_kill <= (f_out && !f_ack) || f_taken;
 			end else if (d_fix) begin
 				pc_f   <= d_wpc + (d_fix2 ? 64'd8 : 64'd4);
 				f_halt <= 1'b0;
-				f_kill <= (f_out && !f_ack) || f_taken;
 			end else begin
 				if (f_taken) pc_f <= bt_hit ? { pc_f[63:32], bt_tg[30:1], 2'b00 } : pc_f + 64'd4;
 				if (f_fault) f_halt <= 1'b1;
-				if (f_ack) f_kill <= 1'b0;
-			end
-			if (f_taken)    f_out <= 1'b1;
-			else if (f_ack) f_out <= 1'b0;
-			if (f_taken) begin
-				fo_pt <= bt_hit;
-				fo_tg <= bt_tg;
-				fo_po <= bt_po;
-				fo_hi <= pc_f[2];
 			end
 
 			// -- the BTB learns ------------------------------------------
@@ -1521,7 +1552,7 @@ module kakao64 #(
 	end
 	always @(posedge clk) begin
 		p_n[p_k] <= p_n[p_k] + 1;
-		p_dw <= x_valid && x_issued && !m_ack;
+		p_dw <= x_valid && x_issued && !d_ack;
 	end
 	final begin
 		$display("profile: %0d done | muldiv %0d | data: asked %0d, answer 1st cycle %0d, later %0d, walk %0d, port busy %0d, translate %0d",

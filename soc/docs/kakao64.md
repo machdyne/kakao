@@ -93,7 +93,8 @@ grows.
       whatever its size, and a fetch takes its word from the half it
       asked for. Tests: `rv64ui`, `rv64mi`.
 - [x] **2. M and A at 64 bits.** The multiplier/divider at 64 bits
-      (64 steps; the W forms extend their operands and run the same),
+      (64 steps, or with `FAST_MUL` sixteen bits a step in four DSP
+      blocks; the W forms extend their operands and run the same),
       lr/sc and the AMOs for words and doublewords. Tests: `rv64um`,
       `rv64ua`. With step 1: 106 programs, each at four latencies and
       three random runs, all pass. The 87 others need paging (step 4).
@@ -146,8 +147,8 @@ grows.
       (`sim/fptest`: 23 programs, on QEMU and on the simulated SOC),
       and a glibc program computing with doubles under Linux.
 - [x] **7. Timing and the board.** `make -C boards BOARD=sergei_ml2
-      CPU64=1 FAST_MUL=0`: 48.73 MHz for 48 (seed 2), 60% of the 45F's
-      LUTs, 107 of 108 block RAMs. It took registers between the CPU
+      CPU64=1`: 50.49 MHz for 48 (seed 2), 61% of the 45F's LUTs, 107
+      of 108 block RAMs (48.73 MHz as first placed, builds t2 and t3). It took registers between the CPU
       and the cache in three places (see "Timing" below) and costs
       speed. **Linux boots on the Sergei ML2** to a shell, first with a
       busybox root on the card's second partition.
@@ -162,9 +163,12 @@ grows.
       and why is not known. One card showed older data beyond 500 MB
       than had been written to it last; whether that was the card's
       writing or ours is not settled.
-- [ ] **9. Speed.** Two fetches in flight (below); a multiplier in the
-      DSP blocks (it is 64 steps now); a cache 64 bits wide; floating
-      point arithmetic in hardware; the SD card.
+- [ ] **9. Speed.** Done: two requests in flight (below), and the
+      multiplier in DSP blocks (8 cycles for 66). Not done: the caches'
+      lines are 16 bytes, and waiting for memory is the largest single
+      share of the cycles; the page walks (three doublewords each, and
+      a TLB of 32 entries); a cache 64 bits wide; floating point
+      arithmetic in hardware; the SD card.
 
 ## Timing
 
@@ -181,12 +185,23 @@ kakao32's SOC meets 48 MHz with the FPGA 43% full. With kakao64 it is
   could be taken, without waiting for the hit; a fetch or load that
   misses is put back and looked up again (two cycles on a miss).
 - `k_port64` gives the cache's answer to the CPU through a register,
-  one access at a time.
+  and whether it takes the CPU's request is a register too.
 
-The last is the expensive one: a fetch completes every other cycle at
-best. A simulated Linux boot takes 6.9 cycles an instruction, 5.4
-before these changes. Letting two fetches be in flight would give most
-of that back without touching the paths that were too long.
+As first done, the last allowed one access at a time, a fetch every
+other cycle at best, and a simulated Linux boot took 6.9 cycles an
+instruction where it had taken 5.4 before these changes.
+
+Now two requests may be outstanding: the CPU asks for the next word
+while the one before is on its way (its queue is four words for that),
+and for X's load or store behind a fetch; `k_port64` shows the cache a
+request while the cache answers the one before, and keeps the one the
+cache did not take. No path of the above is put back: the SOC places
+at 50.5 MHz with it. Measured over the first 400 million cycles of a
+simulated Linux boot, with the board's 64 KB instruction cache: 6.06
+cycles an instruction for 6.83, 13% more instructions in the time.
+Where the rest goes, by what the CPU was waiting for: a load's or
+store's answer after its first cycle 43% of all cycles (memory, with
+lines of 16 bytes), fetches on their way 13%, page walks 9%.
 
 ## What is not known yet
 

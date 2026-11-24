@@ -104,19 +104,33 @@ module kakao64_muldiv_lean #(
 	// does not borrow, i.e. when the carry out of bit 32 is set
 	wire        div_ge = add_s[65];
 
-	// Fast multiply: operands registered before the DSP, as in
-	// kakao64_muldiv (the product is already correctly signed).
-	reg signed [64:0] fm_a;
-	reg signed [64:0] fm_b;
-	wire signed [129:0] fm_p;
-	wire signed [64:0] fm_a_sel = $signed({mul_a_signed & a[63], a});
-	wire signed [64:0] fm_b_sel = $signed({mul_b_signed & b[63], b});
+	// Fast multiply: the multiplier (in acc's low half, as for the
+	// sequential one) sixteen bits a step, in four 16 by 16 multipliers
+	// (the FPGA's own), against the multiplicand's four sixteenths.
+	// Three registers on the way, so that none of it is a long path at
+	// 48 MHz: the four products (fm_p*); their sum, which is the
+	// multiplicand times the sixteen bits (fm_s); and acc, which takes
+	// that in at the top and moves down sixteen. A step is started in
+	// each of four cycles, the last is in acc three cycles after it
+	// started: nine cycles from start to ready, where the sequential
+	// multiply has sixty-seven. Magnitudes, and the sign put right at
+	// the end, as there. (A 64 by 64 multiplier in one cycle, which
+	// this parameter built before, ran at half the clock.)
+	reg  [2:0] fc;
+	reg [31:0] fm_p0, fm_p1, fm_p2, fm_p3;
+	reg [79:0] fm_s;
+	wire [15:0] fm_m = (fc == 3'd0) ? acc[15:0] : (fc == 3'd1) ? acc[31:16] : acc[47:32];
+	wire [79:0] fm_acc = { 16'd0, acc[127:64] } + fm_s;
 
 	generate
 		if (FAST_MUL) begin : g_fast_mul
-			assign fm_p = fm_a * fm_b;
-		end else begin : g_no_fast_mul
-			assign fm_p = 130'd0;
+			always @(posedge clk) begin
+				fm_p0 <= dsor[15:0]  * fm_m;
+				fm_p1 <= dsor[31:16] * fm_m;
+				fm_p2 <= dsor[47:32] * fm_m;
+				fm_p3 <= dsor[63:48] * fm_m;
+				fm_s  <= { 16'd0, fm_p2, fm_p0 } + { fm_p3, fm_p1, 16'd0 };
+			end
 		end
 	endgenerate
 
@@ -135,17 +149,11 @@ module kakao64_muldiv_lean #(
 					op_q <= op;
 					cnt <= 7'd64;
 					if (do_mul) begin
-						if (FAST_MUL) begin
-							neg <= 1'b0;
-							fm_a <= fm_a_sel;
-							fm_b <= fm_b_sel;
-							state <= MD_FAST;
-						end else begin
-							neg <= (a_neg ^ b_neg);
-							acc <= {64'd0, b_abs};
-							dsor <= a_abs;
-							state <= MD_RUN;
-						end
+						neg <= (a_neg ^ b_neg);
+						acc <= {64'd0, b_abs};
+						dsor <= a_abs;
+						fc <= 3'd0;
+						state <= FAST_MUL ? MD_FAST : MD_RUN;
 					end else if (do_div) begin
 						// No special cases: dividing by 0 subtracts nothing, so every
 						// quotient bit is 1 (0xffffffff), and the remainder is |a|,
@@ -161,9 +169,13 @@ module kakao64_muldiv_lean #(
 				end
 			end
 
+			// (in cycle fc the products of step fc are made; its sum is
+			// there in cycle fc + 2, and acc has by then moved fc - 2
+			// times, which is where fm_m looks)
 			MD_FAST: begin
-				acc <= fm_p[127:0];
-				state <= MD_FIX;
+				if (fc >= 3'd2) acc <= { fm_acc, acc[63:16] };
+				fc <= fc + 3'd1;
+				if (fc == 3'd5) state <= MD_FIX;
 			end
 
 			MD_RUN: begin

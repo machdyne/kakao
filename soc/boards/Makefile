@@ -30,7 +30,7 @@
 #   VIRTIO=n      virtio slots (2: the SD card as a disk and the network;
 #                 0: none, and without a terminal no I/O processor)
 #   I_KB=, D_KB=  the caches' sizes
-#   FAST_MUL=0    the multiplier in 32 steps instead of in DSP blocks
+#   FAST_MUL=0    the multiplier a bit a step instead of in DSP blocks
 #   KCACHE=0      Zeitlos's cache instead of k_cache
 #   LAYOUTS=      the keyboard layouts built in (fw/iop)
 #

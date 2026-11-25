@@ -1,8 +1,7 @@
 #!/bin/sh
-# release.sh [-o <dir>] [-v <version>] [-s "<seeds>"] [-f] [-n] -i <inputs> [<board> ...]
+# release.sh [-o <dir>] [-v <version>] [-s "<seeds>"] [-f] [-n] [-i <inputs>] [<board> ...]
 #
-# A release of Kakao for the Kakao SOC (soc/boards: make release
-# RELEASE="-i <inputs>"). For each board, all of them if none is named:
+# A release of Kakao for the Kakao SOC (soc/boards: make release). For each board, all of them if none is named:
 #
 #   kakao-linux-buildroot-<version>-<board>.zip
 #       Kakao Linux (Buildroot) on kakao32: the bitstream, and the SD
@@ -20,15 +19,24 @@
 # A build that does not fit or does not meet timing with any seed has
 # no file, and the script ends with an error after doing the others.
 #
-#   -i   the files that are not built here (boards/README.md says how
-#        each is made):
-#          <inputs>/rv32/fw_jump.bin    OpenSBI for RV32
-#          <inputs>/rv32/Image          the kernel
-#          <inputs>/rv32/rootfs.cpio    Kakao's root file system
-#          <inputs>/rv64/fw_jump.bin    OpenSBI for RV64, with fw/opensbi's patch
-#          <inputs>/rv64/Image          the kernel
-#          <inputs>/rv64/rootfs.tar.gz  Debian's official root file system
-#          <inputs>/rv64/busybox        a static busybox for riscv64
+#   -i   where the files that are not built here are, if not in
+#        images/soc of this repository, which has them prebuilt
+#        (tools/mkimages.sh builds them from source):
+#          rv32/fw_jump.bin    OpenSBI for RV32
+#          rv32/Image          the kernel
+#          rv64/fw_jump.bin    OpenSBI for RV64, with fw/opensbi's patch
+#          rv64/Image          the kernel
+#          rv64/busybox        a static busybox for riscv64
+#        and, if they are there, used in place of what is otherwise
+#        taken:
+#          rv32/rootfs.cpio    Kakao's root file system: otherwise
+#                              images/rootfs.cpio, changed for the SOC by
+#                              buildroot/board/kakao_soc/post-build.sh
+#          rv64/rootfs.tar.gz  Debian's root file system: otherwise
+#                              Debian's official one for riscv64 (trixie),
+#                              fetched from GitHub
+#                              (debuerreotype/docker-debian-artifacts) into
+#                              soc/boards/build/debian, once
 #        Without rv32 or without rv64, that system is left out.
 #   -o   where to put the release (soc/boards/build/release)
 #   -v   the version in the names (the year and month: 2026.11)
@@ -43,10 +51,11 @@
 set -e
 here=$(cd "$(dirname "$0")" && pwd)
 boards_dir=$here/../boards
+top=$(cd "$here/../.." && pwd)
 out=$boards_dir/build/release
 version=$(date +%Y.%m)
 seeds="2 1 3 4 5 6 7 8"
-in=
+in=$top/images/soc
 first=
 nobuild=
 cardmb=1900
@@ -59,7 +68,7 @@ while getopts o:v:s:i:S:fn f; do
 	esac
 done
 shift $((OPTIND - 1))
-[ -n "$in" ] && [ -d "$in" ] || { sed -n '2,/^$/p' "$0"; exit 2; }
+[ -d "$in" ] || { echo "release.sh: no $in"; exit 2; }
 in=$(cd "$in" && pwd)
 all=$(make -s -C "$boards_dir" boards)
 all64=$(make -s -C "$boards_dir" boards64)
@@ -68,13 +77,31 @@ boards=${*:-$all}
 
 has() { for f in $2; do [ -f "$in/$1/$f" ] || return 1; done; }
 do32=; do64=
-has rv32 "fw_jump.bin Image rootfs.cpio" && do32=1 || echo "release.sh: no $in/rv32 with fw_jump.bin, Image, rootfs.cpio: no Kakao Linux (Buildroot)"
-has rv64 "fw_jump.bin Image rootfs.tar.gz busybox" && do64=1 || echo "release.sh: no $in/rv64 with fw_jump.bin, Image, rootfs.tar.gz, busybox: no Kakao Linux (Debian)"
+has rv32 "fw_jump.bin Image" && do32=1 || echo "release.sh: no $in/rv32 with fw_jump.bin, Image: no Kakao Linux (Buildroot)"
+has rv64 "fw_jump.bin Image busybox" && do64=1 || echo "release.sh: no $in/rv64 with fw_jump.bin, Image, busybox: no Kakao Linux (Debian)"
 [ -n "$do32$do64" ] || exit 1
 card=
 if [ -n "$do64" ]; then
 	if [ "$(id -u)" = 0 ]; then card=1
 	else echo "release.sh: not root: the Debian zips are made, the card images (.img.xz) are not"; fi
+fi
+
+# the two root file systems
+cpio=$in/rv32/rootfs.cpio
+if [ -n "$do32" ] && [ ! -f "$cpio" ]; then
+	cpio=$boards_dir/build/rootfs.cpio
+	mkdir -p "$boards_dir/build"
+	sh "$top/buildroot/board/kakao_soc/post-build.sh" "$top/images/rootfs.cpio" "$cpio"
+fi
+deb=$in/rv64/rootfs.tar.gz
+if [ -n "$card" ] && [ ! -f "$deb" ]; then
+	deb=$boards_dir/build/debian/trixie/oci/blobs/rootfs.tar.gz
+	if [ ! -f "$deb" ]; then
+		echo "== fetching Debian's root file system"
+		rm -rf "$boards_dir/build/debian"
+		git clone -q --depth 1 -b dist-riscv64 https://github.com/debuerreotype/docker-debian-artifacts "$boards_dir/build/debian" ||
+			{ echo "release.sh: could not fetch it: no card images (or name one with -i: rv64/rootfs.tar.gz)"; card=; }
+	fi
 fi
 
 mkdir -p "$out"
@@ -124,7 +151,8 @@ for b in $boards; do
 			t=$(mktemp -d)
 			mkdir -p "$t/sys/linux"
 			cp "$B/kakao.bit" "$t/kakao32-$b.bit"
-			cp "$B/boot.json" "$B/kakao.dtb" "$in/rv32/fw_jump.bin" "$in/rv32/Image" "$in/rv32/rootfs.cpio" "$t/sys/linux/"
+			cp "$B/boot.json" "$B/kakao.dtb" "$in/rv32/fw_jump.bin" "$in/rv32/Image" "$t/sys/linux/"
+			cp "$cpio" "$t/sys/linux/rootfs.cpio"
 			cat > "$t/README.txt" <<EOT
 Kakao Linux (Buildroot) $version for $b, on the Kakao SOC with kakao32
 
@@ -195,7 +223,7 @@ EOT
 		if [ -n "$card" ]; then
 			c=$(mktemp -d)
 			cp "$t"/sys/linux/* "$c/"
-			if sh "$here/mkdebian.sh" -s "$cardmb" -t "$in/rv64/rootfs.tar.gz" -B "$in/rv64/busybox" -b "$c" "$out/$img" > "$out/$b-64.card.log" 2>&1; then
+			if sh "$here/mkdebian.sh" -s "$cardmb" -t "$deb" -B "$in/rv64/busybox" -b "$c" "$out/$img" > "$out/$b-64.card.log" 2>&1; then
 				# (mkdebian.sh takes the lists by the names it knows; the two spare ones go in as well)
 				MTOOLS_SKIP_CHECK=1 mcopy -i "$out/$img@@1M" "$c/boot-systemd.json" "$c/boot-busybox.json" ::/sys/linux/
 				xz -T0 -f "$out/$img"

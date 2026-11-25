@@ -134,7 +134,9 @@ soc/
   tools/             kload.py (the host's end of kboot's loader), mkdts.py
                      (a board's device tree), mkfont.py (the terminal's
                      font), mkkbd.py (its keyboard layouts), mkdebian.sh
-                     and debian/ (a Debian card), release.sh
+                     and debian/ (a Debian card), release.sh (a
+                     release), mkimages.sh (OpenSBI, the kernels and
+                     the busybox of ../images/soc, from source)
   boards/            the boards: one top, one Makefile (BOARD=)
   docs/              the documents above
   ext/zeitlos/       Zeitlos, a submodule pinned to a release: what both

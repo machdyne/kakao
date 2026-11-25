@@ -28,7 +28,7 @@ make BOARD=lakritz seeds      the same, placed with several seeds (SEEDS=)
 make BOARD=lakritz synth      only as far as what it takes of the FPGA
 make BOARD=sergei_ml2 CPU64=1 with kakao64, in build/sergei_ml2-64
 make boards                   the boards there are
-make release RELEASE="-i <inputs>"   a release (below)
+make release                         a release (below)
 ```
 
 It needs yosys, nextpnr-ecp5 and ecppack, a RISC-V gcc
@@ -62,6 +62,10 @@ fw_jump.bin     OpenSBI
 Image           the kernel
 rootfs.cpio     the root file system
 ```
+
+`fw_jump.bin` and `Image` are in `images/soc/rv32` of this repository,
+prebuilt (kakao64's in `images/soc/rv64`); how they are built follows,
+and `../tools/mkimages.sh` does it.
 
 `kakao.dtb` differs by board (its memory, how many terminals); the rest
 is the same for all. The root file system runs from memory.
@@ -188,25 +192,28 @@ ports changes, a note at the top right says what is there.
 ## A release
 
 ```
-make release RELEASE="-i <inputs>"
+make release
+sudo sh ../tools/release.sh -n
 ```
 
-(`../tools/release.sh`) builds every board with kakao32, and those it
-is for with kakao64, each placed with several seeds, and packs for each
-the bitstream with its card's files; for Debian also the whole card as
-an image, when run as root. `<inputs>` holds what is not built here:
-OpenSBI, the kernels, Kakao's root file system, Debian's official root
-file system and a static busybox (the script's first lines say which
-file goes where; the sections above, and `../docs/debian.md`, say how
-each is made). `SUMMARY.md` there lists what was made, how fast each
-placed and which boards have been run. `-v` names the version, which
-is otherwise the year and month.
+The first (`../tools/release.sh`) builds every board with kakao32, and
+those it is for with kakao64, each placed with several seeds, and packs
+for each the bitstream with its card's files, into `build/release`.
+The second places nothing and packs again as root, which adds for
+Debian the whole card as an image (the files in it have owners, so
+that part needs root; the bitstreams do not). `SUMMARY.md` there lists
+what was made, how fast each placed and which boards have been run.
+`-v` names the version, which is otherwise the year and month, and
+boards named after the options are the only ones done.
 
-The Debian card images need root (the files in them have owners), the
-bitstreams do not. So, for instance: `make release` as yourself, which
-places everything and makes the zips, then
-`sudo sh ../tools/release.sh -n -i <inputs>`, which places nothing and
-packs again, now with the cards.
+Nothing else has to be built or found first. OpenSBI, the kernels and
+the busybox are in [`images/soc`](../../images/soc/README.md),
+prebuilt, and they are the files that have been run on a board;
+`../tools/mkimages.sh` builds them again from source, which is wanted
+only after a change to a kernel configuration or to OpenSBI's patch.
+Kakao's root file system is `images/rootfs.cpio`, and Debian's is
+fetched from Debian's official images the first time, into
+`build/debian`. `-i <directory>` takes other files than these.
 
 Which boards kakao64 is for, and which have been run, are `BOARDS64`
 and `TESTED` in the Makefile.

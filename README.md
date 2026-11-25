@@ -2,22 +2,22 @@
 
 Kakao is a set of RISC-V operating systems for Machdyne FPGA computers: each is a distribution or a port of a system to Kakao SOC, a computer for the FPGA with CPUs of its own.
 
-| System | CPU | Status |
-| ------ | --- | ------ |
-| **Kakao Linux (Buildroot)** | rv32 | Works. Released for the LiteX VexRiscv SOC (the boards listed below). On the Kakao SOC with kakao32 it runs on the Sergei ML2, with the monitor, keyboard and mouse, the SD card as its disk and the network; the other boards are built and not yet tried, and nothing is released there yet. |
-| **Kakao Linux (Debian)** | rv64 | Boots on the Sergei ML2 with kakao64: Debian 13 (trixie) from Debian's own packages, with its own init (systemd, which takes minutes to come up on this CPU) or, on the same card, a busybox as init for a prompt in seconds; the SD card as its disk, the network, apt. Not released; speed is what is being worked on. See [soc/docs/debian.md](soc/docs/debian.md). |
+| System | CPU | |
+| ------ | --- | - |
+| **Kakao Linux (Buildroot)** | rv32 | A small Linux with timeless applications, running from memory. On the Kakao SOC, and on the LiteX VexRiscv SOC (the rest of this README). |
+| **Kakao Linux (Debian)** | rv64 | Debian 13 (trixie) from Debian's own packages, on the boards with 512 MB of memory. [soc/docs/debian.md](soc/docs/debian.md) |
 | **Kakao Plan 9** | rv64 | In progress. |
 | **Kakao NetBSD** | rv64 | Planned. |
 
 ## The Kakao SOC
 
-The hardware all of them are for is in [soc/](soc/README.md). To software it looks like QEMU's RISC-V `virt` machine (CLINT, PLIC, 16550 consoles, virtio disk and network), so a system that runs there needs little or nothing changed to run here: the mainline Linux kernel is used as it is, and OpenSBI too but for one patch for kakao64's floating point.
+The hardware all of them are for is in [soc/](soc/README.md): how to use a release, how to build it, and how it works. To software it looks like QEMU's RISC-V `virt` machine (CLINT, PLIC, 16550 consoles, virtio disk and network), so a system that runs there needs little or nothing changed to run here.
 
   - **kakao32**: RV32IMA with M, S and U modes and Sv32. Runs Kakao Linux (Buildroot).
-  - **kakao64**: RV64IMAC with Sv39 and, with the firmware's help, F and D: what Debian's riscv64 port is built for. For the boards with 512 MB of memory and an ECP5 45F or larger. Runs Kakao Linux (Debian).
+  - **kakao64**: RV64IMAC with Sv39 and, with the firmware's help, F and D: what Debian's riscv64 port is built for. Runs Kakao Linux (Debian).
   - An I/O processor beside the CPU is the text terminals on the monitor (with a USB keyboard and mouse) and the virtio devices: the SD card as a disk, Ethernet.
 
-It is built for Sergei, Mozart, Lakritz, Konfekt and Klinge ([soc/boards](soc/boards/README.md)) and is not released yet.
+It is built for Sergei, Mozart, Lakritz, Konfekt and Klinge ([soc/boards](soc/boards/README.md)). Both systems run on the Sergei ML2; the other boards have not been tried yet.
 
 # Kakao Linux (Buildroot, rv32)
 

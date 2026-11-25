@@ -10,11 +10,11 @@
 #   make BOARD=<board> synth    only build/<board>/kakao.json, and what it
 #                               takes of the FPGA (build/<board>/synth.log)
 #   make boards                 the boards there are
-#   make release RELEASE="-i <inputs>"
+#   make release
 #                               the release: every board's bitstreams and
 #                               card files, and Debian's card images, in
 #                               build/release with a summary
-#                               (../tools/release.sh says what <inputs> is)
+#                               (../tools/release.sh; RELEASE= its options)
 #
 # Boards: sergei_ml2 mozart_ml2 (45F, 512 MB DDR3), sergei_ml1 mozart_ml1
 # (45F, 32 MB SDRAM), sergei_ml0 mozart_ml0 lakritz (25F, 32 MB SDRAM),

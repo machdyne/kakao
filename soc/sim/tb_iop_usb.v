@@ -21,15 +21,20 @@
  * is done in the middle of the keyboard's test (MT_AFTER=3, after the
  * layout's change; 1, 2 and 4 are other places).
  *
- * KNOWN TO FAIL, by a narrow margin of time: without MT_AFTER the mouse
- * is plugged in at the very end, 8 ms after the last key, and there
- * the driver does not get past reading the mouse's report descriptor
- * (its control transfer's last stage is never seen to end). Plugged in
- * 20 ms later (MT_DELAY=960000) the same mouse is recognised and works,
- * as it is at the four other places. So something in Zeitlos's driver
- * or controller, or in the model, can lose a transfer's end; where is
- * not known. make usb-late runs it. On a board it would show as a
- * device that is not recognised until it is plugged in again.
+ * Without MT_AFTER the mouse is plugged in at the very end, 8 ms after
+ * the last key (make usb-late). That one failed for a long time, and
+ * not for anything in the driver or the controller: the driver parses
+ * a mouse's report descriptor to the length the device promised (52
+ * bytes), the model sends 18, and the rest was whatever the packet
+ * buffer held -- in simulation unknown values where no earlier packet
+ * had been, which stopped the I/O processor's model dead. The buffer
+ * now starts as zeros, as a block RAM does. (On a board the parser
+ * reads stale bytes there, and comes to an end either way.)
+ *
+ * SHORT leaves out all of the keyboard's test but its end; XLOG prints
+ * every transaction once the mouse is plugged in and, with XDEVS and
+ * XOWN (addresses from nm iop.elf), the driver's state when it stops
+ * asking for any.
  *
  *   make usb          (in soc/sim) both ways round
  */
@@ -197,7 +202,12 @@ module tb_iop_usb;
 			plug_m = 1;
 			g = 0;
 			while (host.typ1 !== 2'd2 && g < 12000000) begin @(posedge clk); g = g + 1; end
-			if (host.typ1 !== 2'd2) begin $display("FAIL: no mouse after %0d clocks", g); errors = errors + 1; end
+			if (host.typ1 !== 2'd2) begin
+				$display("FAIL: no mouse after %0d clocks", g); errors = errors + 1;
+`ifdef XLOG
+				$finish;
+`endif
+			end
 			else $display("a mouse after %0d ms", g / 48000);
 			repeat (100000) @(posedge clk);
 			after = 200000;
@@ -233,6 +243,15 @@ module tb_iop_usb;
 		end
 	endtask
 
+	// The controller's packet buffer starts as a block RAM does on the
+	// FPGA, all zeros. (Left unknown, as the simulator has it, a read
+	// past what a device sent poisons the I/O processor: the driver
+	// parses a report descriptor to the length the device promised, the
+	// model's is shorter, and the test then failed or passed by what an
+	// earlier packet happened to have left there.)
+	integer pb;
+	initial for (pb = 0; pb < 2048; pb = pb + 1) host.pbuf[pb] = 8'h00;
+
 	integer guard;
 	initial begin
 		#1;
@@ -253,6 +272,7 @@ module tb_iop_usb;
 		$display("a keyboard after %0d ms", guard / 48000);
 		repeat (100000) @(posedge clk);
 
+`ifndef SHORT	// (SHORT: only what comes just before the mouse at the end)
 		tap(8'h00, 8'h04);  expect("a", 1, "a");
 		tap(8'h02, 8'h04);  expect("A", 1, "A");
 		tap(8'h01, 8'h06);  expect("Ctrl+C", 1, 8'h03);
@@ -290,6 +310,8 @@ module tb_iop_usb;
 		if (`MT_AFTER == 3) mouse_test;
 `endif
 
+`endif
+
 		// the second terminal (Super with 2): its screen, and the keys to
 		// its console; and back with Super and Left
 		report(8'h08, 8'h00); report(8'h08, 8'h1f); report(8'h08, 8'h00); report(8'h00, 8'h00);
@@ -320,6 +342,72 @@ module tb_iop_usb;
 		else $display("PASS: a keyboard on a root port, and a mouse");
 		$finish;
 	end
+
+`ifdef XLOG
+	// every transaction of the controller's once the mouse is plugged in:
+	// what was started (S: sof, P: an automatic poll, else software's),
+	// and how it ended; and software's request while it waits
+	integer xl_t = 0;
+	reg xl_w = 0;
+	always @(posedge clk) begin
+		xl_t <= xl_t + 1;
+		if (plug_m && host.sched_start)
+			$display("%0d us: start %s pid %0d addr %0d ep %0d port %0d ls %0d len %0d",
+				xl_t / 48, host.sched_is_sof ? "S" : host.sched_is_poll ? "P" : "w",
+				host.sched_pid, host.sched_addr, host.sched_endp, host.sched_port, host.sched_ls, host.sched_len);
+		if (plug_m && host.x_done)
+			$display("%0d us: done status %0d len %0d naks %0d", xl_t / 48, host.x_status, host.x_act_len, host.x_naks);
+		xl_w <= host.sw_req;
+		if (plug_m && host.sw_req && !xl_w)
+			$display("%0d us: software asks: pid %0d addr %0d port %0d ls %0d (late_ls %b ka_hold %b sof_pending %b busy %b)",
+				xl_t / 48, host.xa_pid, host.xa_addr, host.xa_port, host.xa_ls, host.late_ls, host.ka_hold, host.sof_pending, host.x_busy);
+	end
+	// When software has asked for nothing for 30 ms, the driver has
+	// stopped: what it thinks, from the I/O processor's memory (XDEVS:
+	// where usbh_devs is, XOWN: xact_owner; nm iop.elf says), and done
+`ifdef XDEVS
+	function [7:0] mb(input integer a);
+		reg [31:0] w;
+		begin w = iop.ram[a >> 2]; mb = w >> (8 * (a & 3)); end
+	endfunction
+	integer xl_last = 0, xd, xo;
+	integer xl_stop = 0;
+	reg [31:0] xl_pc = 0;
+	always @(posedge clk) begin
+		if (plug_m && host.sched_start && !host.sched_is_sof && !host.sched_is_poll) xl_last <= xl_t;
+		if (plug_m && xl_stop == 0 && xl_last != 0 && xl_t - xl_last > 30 * 48000) begin
+			$display("xact_owner %0d  ctrl_cur %0d  bus_reserved %0d", mb(`XOWN), mb(`XOWN - 13), mb(`XOWN + 5));
+			for (xd = 0; xd < 3; xd = xd + 1) begin
+				xo = `XDEVS + xd * 324;
+				$display("dev %0d: state %0d port %0d addr %0d cls %0d retries %0d fail_state %0d fail_status %0d ctrl_state %0d err_stage %0d pend %0d xferred %0d len %0d delay_until %0d deadline %0d slot %0d led_busy %0d mouse_rd %0d",
+					xd, mb(xo), mb(xo + 1), mb(xo + 2), mb(xo + 5), mb(xo + 6), mb(xo + 10), mb(xo + 11),
+					mb(xo + 228), mb(xo + 229), mb(xo + 233), { mb(xo + 237), mb(xo + 236) }, { mb(xo + 239), mb(xo + 238) },
+					{ mb(xo + 243), mb(xo + 242), mb(xo + 241), mb(xo + 240) }, { mb(xo + 247), mb(xo + 246), mb(xo + 245), mb(xo + 244) },
+					mb(xo + 254), mb(xo + 260), mb(xo + 272));
+			end
+			$display("pc %08x", iop.cpu.reg_pc);
+			xl_stop <= 1;
+		end
+		// ...and where it is going, for a while
+		if (xl_stop != 0) begin
+			xl_stop <= xl_stop + 1;
+			if (iop.cpu.reg_pc !== xl_pc) begin
+				$display("  pc %08x  (valid %b ready %b addr %08x wstrb %b; usb ws %0d ack %b)", iop.cpu.reg_pc,
+					iop.mem_valid, iop.mem_ready, iop.mem_addr, iop.mem_wstrb, host.ws, host.wb_ack_o);
+				xl_pc <= iop.cpu.reg_pc;
+			end
+			if (xl_stop == 6000) begin
+				$display("  at the end: pc %08x valid %b ready %b addr %08x; usb ws %0d", iop.cpu.reg_pc, iop.mem_valid, iop.mem_ready, iop.mem_addr, host.ws);
+				$finish;
+			end
+		end
+	end
+`endif
+	// ...and each quarter of a millisecond, what holds it
+	always #250000 if (plug_m && host.sw_req)
+		$display("%0d us: waiting: late_ls %b late_fs %b ka_hold %b sof_pending %b quiet %b busy %b poll_pending %b frame_left %0d",
+			xl_t / 48, host.late_ls, host.late_fs, host.ka_hold, host.sof_pending, host.p_quiet, host.x_busy, host.poll_pending, host.frame_left);
+`endif
 
 `ifdef WATCH
 	// what goes on, every millisecond (WATCHM: once the mouse is plugged in)

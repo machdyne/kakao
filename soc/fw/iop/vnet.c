@@ -2,13 +2,20 @@
  * The network as a virtio network device, in the second slot: queue 0
  * takes what is received, queue 1 brings what is to be sent, and each
  * frame has virtio's header of 12 bytes before it, of which only the
- * count of buffers (one) says anything. No features: no checksums left
- * out, no merged buffers, and Linux gives the interface an address of
- * its own choosing (ip link set ... address sets another).
+ * count of buffers (one) says anything. No checksums left out, no
+ * merged buffers.
+ *
+ * Its Ethernet address is made from the SD card's own number (its CID):
+ * a card keeps its address from boot to boot and from board to board,
+ * as a DHCP server and an ARP table like it, and no setting has to be
+ * kept anywhere. It is marked as locally given (02:...). Without a card
+ * no address is offered, and Linux gives the interface a random one at
+ * each boot (ip link set ... address sets another either way).
  */
 
 #include "virtio.h"
 #include "nic.h"
+#include "sd.h"
 
 #define HDR 12
 
@@ -17,7 +24,15 @@ static uint32_t cfg[3];
 
 static void net_start(struct vdev *d)
 {
-	if (!nic_init()) d->id = 0;		/* no interface on this board: no device */
+	const uint32_t *id;
+	if (!nic_init()) { d->id = 0; return; }	/* no interface on this board: no device */
+	id = sd_ident();
+	if (id[0] | id[1]) {
+		/* (the configuration's first six bytes, as they go on the wire) */
+		cfg[0] = (id[0] & 0xffffff00) | 0x02;
+		cfg[1] = id[1] & 0xffff;
+		d->feat = 1u << 5;			/* VIRTIO_NET_F_MAC */
+	}
 }
 
 void vnet_init(void)

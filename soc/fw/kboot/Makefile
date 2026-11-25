@@ -32,6 +32,8 @@ INC     =
 else
 NAME    = $(K)
 SIZE    = 16384
+# (what a card that cannot be booted from has on it: sdboot.c)
+CFLAGS += -DSD_SAYS
 INC     = ddr3_train.inc
 endif
 
@@ -51,7 +53,42 @@ $(NAME).0.hex: $(NAME).elf
 	$(CROSS)objcopy -O binary $< $(NAME).bin
 	python3 -c "d=open('$(NAME).bin','rb').read(); n=$(SIZE); assert len(d) <= n - 2048, '$(NAME): %d bytes, too big' % len(d); d+=bytes(n-len(d)); [open('$(NAME).%d.hex'%k,'w').write(''.join('%02x\n'%b for b in d[k::4])) for k in range(4)]"
 
-clean:
-	rm -f kboot*.elf kboot*.bin kboot*.hex ddr3_train.inc
+# The FAT code on the host, on cards made here: FAT16; FAT32 with one
+# and with eight sectors a cluster behind a partition table; a long
+# name; and cards that cannot be booted from, for what kboot then says.
+# Needs dosfstools (4.2: --offset), mtools and e2fsprogs.
+T = build/hosttest
+hosttest: hosttest.c sdboot.c
+	@mkdir -p $(T)
+	cc -O1 -Wall -Wno-unused-function -Wno-int-to-pointer-cast -o $(T)/hosttest hosttest.c
+	@printf '{ "x": "0x80000000" }\n' > $(T)/boot.json
+	@rm -f $(T)/*.img
+	@mkfs.vfat -F 16 -C $(T)/fat16.img 16384 > /dev/null
+	@for s in 1 8; do truncate -s 80M $(T)/fat32-$$s.img && \
+		mkfs.vfat -F 32 -s $$s -S 512 --offset 2048 $(T)/fat32-$$s.img $$((64 * 1024)) > /dev/null && \
+		python3 -c "import struct,sys; f=open(sys.argv[1],'r+b'); f.seek(446); f.write(struct.pack('<BBBBBBBBII',0,0,0,0,0x0c,0,0,0,2048,131072)); f.seek(510); f.write(b'\x55\xaa')" $(T)/fat32-$$s.img || exit 1; done
+	@cp $(T)/fat32-1.img $(T)/nolinux.img; cp $(T)/fat32-1.img $(T)/nojson.img
+	@for i in $(T)/fat16.img $(T)/fat32-1.img@@1M $(T)/fat32-8.img@@1M; do \
+		MTOOLS_SKIP_CHECK=1 mmd -i $$i ::/sys ::/sys/linux && \
+		MTOOLS_SKIP_CHECK=1 mcopy -i $$i $(T)/boot.json ::/sys/linux/ && \
+		MTOOLS_SKIP_CHECK=1 mcopy -i $$i $(T)/boot.json "::/sys/linux/a-long-name.with dots.bin" || exit 1; done
+	@MTOOLS_SKIP_CHECK=1 mmd -i $(T)/nolinux.img@@1M ::/sys ::/other
+	@MTOOLS_SKIP_CHECK=1 mmd -i $(T)/nojson.img@@1M ::/sys ::/sys/linux
+	@MTOOLS_SKIP_CHECK=1 mcopy -i $(T)/nojson.img@@1M $(T)/boot.json ::/sys/linux/boot.jsn
+	@truncate -s 16M $(T)/ext.img && mke2fs -q -F $(T)/ext.img
+	@for i in fat16 fat32-1 fat32-8; do \
+		$(T)/hosttest $(T)/$$i.img > $(T)/$$i.txt && grep -q "^found: boot.json, 22 bytes" $(T)/$$i.txt && \
+		$(T)/hosttest $(T)/$$i.img "a-long-name.with dots.bin" | grep -q "^found" || { echo "hosttest: $$i FAILED"; cat $(T)/$$i.txt; exit 1; }; \
+		echo "$$i: ok"; done
+	@cp $(T)/fat32-1.img $(T)/both.img && printf '{ "y": "0x80200000" }\n' > $(T)/boot64.json && \
+		MTOOLS_SKIP_CHECK=1 mcopy -i $(T)/both.img@@1M $(T)/boot64.json ::/sys/linux/ && \
+		$(T)/hosttest $(T)/both.img boot64.json | grep -q "^found: boot64.json, 22 bytes" && echo "boot64.json: ok"
+	@for i in nolinux nojson ext; do echo "-- $$i:"; ! $(T)/hosttest $(T)/$$i.img || { echo "hosttest: $$i was booted from"; exit 1; }; done
+	@$(T)/hosttest $(T)/nolinux.img | grep -q "no /sys/linux. In /sys:" && \
+		$(T)/hosttest $(T)/nojson.img | grep -q "in /sys/linux:.* BOOT.JSN" && \
+		$(T)/hosttest $(T)/ext.img | grep -q "sector 0 ends" && echo "hosttest: PASS"
 
-.PHONY: all clean
+clean:
+	rm -rf kboot*.elf kboot*.bin kboot*.hex ddr3_train.inc build
+
+.PHONY: all clean hosttest

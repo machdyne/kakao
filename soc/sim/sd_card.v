@@ -65,6 +65,7 @@ module sd_card #(
 	reg [31:0] blk;
 	reg [10:0] cnt;
 	reg        idle, ready, app;
+	reg        want_cid;			// the sixteen bytes asked for are the CID, not the CSD
 	reg  [1:0] tries;
 
 	wire [5:0]  c   = cmd[45:40];
@@ -134,7 +135,9 @@ module sd_card #(
 							6'd55: begin app <= 1'b1; rsp[0] <= ready ? 8'h00 : 8'h01; end
 							6'd58: begin rsp[0] <= ready ? 8'h00 : 8'h01; rsp[1] <= 8'hc0; rsp[2] <= 8'hff; rsp[3] <= 8'h80; rsp_n <= 5; end
 							6'd16: rsp[0] <= 8'h00;
-							6'd9:  begin rsp[0] <= 8'h00; after <= 2'd3; end
+							6'd13: begin rsp[0] <= 8'h00; rsp[1] <= 8'h00; rsp_n <= 2; end
+							6'd9:  begin rsp[0] <= 8'h00; after <= 2'd3; want_cid <= 1'b0; end
+							6'd10: begin rsp[0] <= 8'h00; after <= 2'd3; want_cid <= 1'b1; end
 							6'd17, 6'd24: begin
 								blk <= arg;
 								if (!ready || arg >= SECTORS) begin
@@ -164,7 +167,7 @@ module sd_card #(
 					// two bytes of waiting, the token, the data, two of CRC
 					cnt <= cnt + 11'd1;
 					if (cnt == 11'd2) tx <= 8'hfe;
-					else if (cnt >= 11'd3 && after == 2'd3 && cnt < 11'd19) tx <= csd(cnt - 11'd3);
+					else if (cnt >= 11'd3 && after == 2'd3 && cnt < 11'd19) tx <= want_cid ? (8'h4b + cnt[7:0]) : csd(cnt - 11'd3);
 					else if (cnt >= 11'd3 && after == 2'd1 && cnt < 11'd515) tx <= in_gap ? 8'h00 : img[iblk * 512 + cnt - 3];
 					if (cnt == (after == 2'd3 ? 11'd20 : 11'd516)) begin
 						ph <= P_CMD;

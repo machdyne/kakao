@@ -49,6 +49,7 @@ module tb_kakao64;
 	parameter BTFN      = 0;
 	parameter BTB_BITS  = 6;
 	parameter FAST_XLATE = 1;
+	parameter TLB_BITS = 5;
 	parameter TRACE     = 0;
 
 	reg clk, rst;
@@ -67,7 +68,7 @@ module tb_kakao64;
 		.FAST_MUL(FAST_MUL),
 		.BTFN(BTFN),
 		.BTB_BITS(BTB_BITS),
-		.FAST_XLATE(FAST_XLATE)
+		.FAST_XLATE(FAST_XLATE), .TLB_BITS(TLB_BITS)
 	) cpu (
 		.clk(clk), .rst(rst),
 		.m_req(m_req), .m_adr(m_adr), .m_dbl(), .m_we(m_we), .m_sel(m_sel),

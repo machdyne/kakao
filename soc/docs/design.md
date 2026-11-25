@@ -18,7 +18,7 @@ the SOC has.
 | Address | Size | Device | Compatible | IRQ | In the SOC |
 |---|---|---|---|---|---|
 | 0x0010_0000 | 4 KB | reset and power-off | `sifive,test1`, `syscon` | | yes: 0x7777 resets the whole machine (OpenSBI's reboot); 0x5555 does nothing on a board, which cannot turn itself off |
-| 0x0010_1000 | 4 KB | real-time clock | `google,goldfish-rtc` | 11 | yes |
+| 0x0010_1000 | 4 KB | real-time clock | `google,goldfish-rtc` | 11 | no: nothing on the boards keeps time; the time comes from the network |
 | 0x0200_0000 | 64 KB | CLINT: msip, mtimecmp, mtime | `sifive,clint0` | | yes |
 | 0x0300_0100 | 256 B | the cache's registers | (firmware only) | | yes (not in QEMU's map) |
 | 0x0300_0700 | 16 B | main memory's registers (DDR3 training) | (firmware only) | | yes (not in QEMU's map) |
@@ -31,31 +31,31 @@ the SOC has.
 | 0x3000_0000 | | PCI | `pci-host-ecam-generic` | | no |
 | 0x8000_0000 | 32 MB .. 512 MB | main memory | | | SDRAM or DDR3 |
 
-The consoles after the first and the framebuffer are the SOC's
-additions; they are described in the board's device tree
-(`tools/mkdts.py`) and use mainline drivers (`ns16550`,
-`simple-framebuffer`).
+The consoles after the first are the SOC's addition; they are
+described in the board's device tree (`tools/mkdts.py`) and use a
+mainline driver (`ns16550`). There is no framebuffer: the picture is
+the text mode's, which Linux does not see.
 
 ## Who implements what
 
-- **Gateware**: CLINT, PLIC, the 16550 register sets, the
-  reset/power-off device, the virtio-mmio register slots, the text mode
-  and the framebuffer scan-out, and the memory controller (from
-  Zeitlos).
-- **The I/O processor**, a second small RISC-V core (picorv32 or
-  zeitlos32) on the 48 MHz clock with its own block RAM, running
-  bare-metal firmware built from Zeitlos's drivers:
-  - the terminal: UART 0's transmit side is drawn into the text mode,
-    its receive side takes keys from the USB keyboard;
-  - the virtio back ends: block (SD card, USB sticks), net (ESP32 WiFi,
-    RMII, USB CDC-ECM adapters), input (USB keyboard and mouse, as raw
-    events), console (extra terminals), rng (the TRNG);
+- **Gateware**: CLINT, PLIC, the 16550 register sets, the reset
+  device, the virtio-mmio register slots, the text mode, and the
+  memory controller (from Zeitlos).
+- **The I/O processor**, a second small RISC-V core (a picorv32) on
+  the 48 MHz clock with its own block RAM, running bare-metal firmware
+  built from Zeitlos's drivers:
+  - the terminals: each console's output is drawn into the text mode,
+    and takes its keys from the USB keyboard;
+  - the virtio back ends: block (the SD card) and net (the RMII
+    Ethernet). Thought of and not built: USB sticks, SPI and USB
+    Ethernet, WiFi, the keyboard and mouse as devices Linux sees, a
+    random number device;
   - the USB host stack: the I/O processor owns the USB ports, Linux
     does not see the controller;
-  - the menu: on a hotkey over the text screen, and on the USB-C socket
-    as a CDC serial device.
+  - the menus, on a key, over the text screen.
 - **OpenSBI**, generic platform, in M-mode: the SBI timer, console and
-  reset, and emulation of what the CPU traps (misaligned accesses).
+  reset, emulation of what the CPU traps (misaligned accesses), and
+  for kakao64, with a patch, floating-point arithmetic.
 
 ## The cache
 
@@ -104,6 +104,14 @@ time, straight on. So:
 - A fetch or load that misses is answered when its word arrives, not
   when the line is complete; that gains under 1%.
 - The CPU's static branch prediction (`BTFN`) gains 0.7% here.
+
+A request's registers are loaded whenever a request could be taken,
+without waiting to know that the one before it hit: a fetch or load
+that misses is put back and looked up again, two cycles on a miss.
+That, and what else kakao64 needed between it and the cache (a port
+that turns a doubleword into two accesses and holds two requests), is
+in [kakao64.md](kakao64.md), "Timing"; kakao64's numbers are there
+too.
 
 ### The cache and the clock
 
@@ -207,9 +215,8 @@ In `soc/sim`, `-GTERMINAL=1 -GTERMS=4 -GRXPIN=1` boots Linux with four
 terminals and prints their screens at the end, and `make usb` runs the
 I/O processor with Zeitlos's model of a USB device as a keyboard, on a
 root port and behind its model of a hub, and as a mouse plugged in
-beside the keyboard. (Plugged in at one particular moment the mouse is
-not recognised: `sim/tb_iop_usb.v` says what is known, `make usb-late`
-shows it.)
+beside the keyboard, in the middle of the keyboard's test and (`make
+usb-late`) at its end.
 
 The USB controller needs a 48 MHz clock (four clocks a full-speed
 bit). The SOC's clock is that today; when it is not, the I/O processor
@@ -266,9 +273,12 @@ devices are the I/O processor's programs.
   which is when Linux first looks at its disk, and is the CPU's again
   after a reset.
 
-The network device offers no features: Linux gives the interface an
-address of its own choosing at each boot (`ip link set eth0 address`
-sets another), and frames go one buffer each.
+The network device's Ethernet address is made from the SD card's own
+number (its CID), marked as locally given (02:...): a card keeps its
+address from boot to boot, which a DHCP server likes, and nothing has
+to be stored for it. Without a card Linux gives the interface a random
+address at each boot. `ip link set eth0 address` sets another either
+way. Frames go one buffer each.
 
 A machine without a terminal (Klinge, which has no monitor and no USB
 host; `TERMINAL=0`) has an I/O processor all the same when it has
@@ -305,9 +315,11 @@ brings the main memory up (on a DDR3 board with Zeitlos's trainer),
 tests a little of it, and loads OpenSBI, the kernel, the device tree
 and the root file system from `/sys/linux` on the SD card's FAT
 partition, where `boot.json` (LiteX's format) says what goes where;
-then it starts OpenSBI at 0x8000_0000. Without a card it takes the
-same files over the UART (`tools/kload.py`). `boards/README.md` has
-what goes on the card.
+then it starts the file named first, which is OpenSBI. kboot for
+kakao64 reads `boot64.json` where there is one, so a card can hold
+both CPUs' systems. Without a card kboot takes the same files over the
+UART (`tools/kload.py`), and a card it cannot boot from it describes.
+`boards/README.md` has what goes on the card.
 
 ## Later options
 
@@ -316,5 +328,5 @@ what goes on the card.
   the Zeitlos USB host controller, so that Linux owns screen, keyboard
   and USB itself.
 - An X server driver for the Zeitlos blitter.
-- kakao64 (RV64GC, Sv39) for Debian: `docs/kakao64.md`. It runs; what
-  is left is there.
+- kakao64 (RV64GC, Sv39) is no longer one: Debian boots on it
+  ([kakao64.md](kakao64.md), [debian.md](debian.md)).

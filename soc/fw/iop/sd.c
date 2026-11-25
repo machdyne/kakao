@@ -19,6 +19,10 @@
 static uint32_t spi_ctrl;
 static uint8_t  sd_blk;			/* the card counts in blocks, not bytes */
 static uint8_t  wr_busy;		/* selected still: it is writing */
+static uint8_t  wr_err;			/* the last write: the card said it failed */
+static uint8_t  inited;			/* sd_init has been through once */
+static uint32_t card_size;
+static uint32_t card_id[2];		/* two sums of its CID (both 0: none read) */
 
 static uint8_t spi(uint8_t b)
 {
@@ -63,8 +67,12 @@ uint32_t sd_init(void)
 	uint8_t r = 0xff, csd[16];
 	uint32_t size = 0;
 
+	/* (once: the disk and the network both ask, in whichever order the
+	   host looks at them) */
+	if (inited) return card_size;
+	inited = 1;
 	if (SPI_MAGIC != 0x53504931) return 0;
-	wr_busy = 0;
+	wr_busy = 0; wr_err = 0;
 	spi_ctrl = SPI_DIV(DIV_INIT);
 	SPI_CTRL = spi_ctrl;
 	for (n = 0; n < 12; n++) spi(0xff);
@@ -101,11 +109,30 @@ uint32_t sd_init(void)
 			size = (c + 1) << (mult + 2 + bl - 9);
 		}
 	}
+	/* which card it is: the CID, of which two sums are kept (the
+	   network's address is made of them) */
+	if (size && sd_cmd(10, 0) == 0x00 && sd_token()) {
+		uint32_t a = 2166136261u, b = 0x4b414b4f;
+		for (n = 0; n < 16; n++) {
+			uint8_t c = spi(0xff);
+			a = (a ^ c) * 16777619u;
+			b = (b << 5 | b >> 27) + c * 0x9e3779b1u;
+		}
+		spi(0xff); spi(0xff);
+		card_id[0] = a; card_id[1] = b;
+	}
 out:
 	sd_cs(0);
 	spi_ctrl = SPI_DIV(DIV_FAST);
 	SPI_CTRL = spi_ctrl;
+	card_size = size;
 	return size;
+}
+
+const uint32_t *sd_ident(void)
+{
+	sd_init();
+	return card_id;
 }
 
 int sd_read(uint32_t lba, uint32_t *to)
@@ -137,7 +164,12 @@ int sd_write(uint32_t lba, const uint32_t *from)
 		for (n = 0; n < 128; n++) SPI_DATA = from[n];
 		SPI_CTRL = spi_ctrl;
 		spi(0xff); spi(0xff);		/* a CRC, not looked at by the card */
-		ok = (spi(0xff) & 0x1f) == 0x05;
+		/* the card's verdict on the block: at once, or a byte or two later */
+		{
+			uint8_t r = 0xff;
+			for (n = 0; n < 8 && ((r = spi(0xff)) & 0x11) != 0x01; n++) ;
+			ok = (r & 0x1f) == 0x05;
+		}
 	}
 	/* the card keeps its answer low while it writes, and stays selected
 	   so that it can be asked (sd_busy) */
@@ -151,5 +183,18 @@ int sd_busy(void)
 	if (spi(0xff) != 0xff) return 1;
 	wr_busy = 0;
 	sd_cs(0);
+	/* It took the block; did it write it? Its status says (CMD13: two
+	   bytes, both zero when nothing went wrong). */
+	sd_cs(1);
+	if (sd_cmd(13, 0) != 0x00) wr_err = 1;
+	if (spi(0xff) != 0x00) wr_err = 1;
+	sd_cs(0);
 	return 0;
+}
+
+int sd_write_failed(void)
+{
+	int e = wr_err;
+	wr_err = 0;
+	return e;
 }

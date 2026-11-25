@@ -9,6 +9,13 @@ interrupt instructions and an MPU, in four stages, built to pass 48 MHz
 in picorv32's area. kakao32 keeps its ALU, multiplier/divider, load and
 store units and register file, and replaces the rest step by step.
 
+Where it stands: it runs Kakao Linux (Buildroot) on the Sergei ML2 at
+48 MHz, with the monitor, keyboard and mouse, the SD card and the
+network; everything tried there worked. 27.98 DMIPS and 98.4 CoreMark
+iterations a second. kakao64 is its 64 bit copy
+([kakao64.md](kakao64.md)); what kakao64 gained since (two requests on
+the memory port at once, a larger TLB) has not been brought back here.
+
 ## Steps
 
 Each step ends with the tests passing and is committed on its own.
@@ -43,14 +50,18 @@ Each step ends with the tests passing and is committed on its own.
       image (Linux 6.1, the buildroot root file system) boot to the
       login prompt and a shell under Verilator, all three unmodified.
       See [../sim/README.md](../sim/README.md).
-- [ ] **6. The pipeline, for clock.** The cache's hit compare in its
-      own stage, the TLB read beside the tag RAM, execute and memory
-      as separate stages, branch prediction. Place and route on a 45F
-      and a 25F at the highest clock that closes.
+- [x] **6. Linux on a board, and speed.** The SOC around it
+      ([design.md](design.md)) and the Sergei ML2: Linux 6.6.18 from
+      the SD card. Then, for speed: a cache of its own (`k_cache`,
+      separate instruction and data caches), translated loads and
+      stores in X's first cycle (`FAST_XLATE`), a branch target buffer
+      of 64 entries at the fetch (`BTB_BITS`), the multiplier in DSP
+      blocks (`FAST_MUL`), static prediction (`BTFN`, off: 0.7%). The
+      pipeline is still four stages and the clock 48 MHz, the USB
+      controller's; a faster clock for the CPU alone is not started.
 - [ ] **Comparison with QEMU**, instruction by instruction, on the
       Linux boot: riscv-tests and a booting kernel do not replace it.
 
-Speed is worked on after Linux runs (step 6 and beyond), not before.
 
 ## Open design points
 
@@ -73,17 +84,25 @@ Speed is worked on after Linux runs (step 6 and beyond), not before.
 
 ## Size and timing
 
-`firstlight` on the 45F (the core, 64 KB of block RAM, CLINT, UART):
-about 6,900 cells placed, of which the core is about 6,000, against
-3,454 before the S-mode, the MMU and the atomics. It passes 48 MHz
-(49 to 52 MHz over seeds). The whole SOC for Sergei ML2, with the
-32 KB cache and the DDR3 controller, passes too (48.3 and 51.0 MHz on
-two seeds) once retired instructions are counted a cycle late: the
-counter's enable was at the end of the path from the cache's tag RAM.
+The whole SOC on the Sergei ML2, with ten terminals, the disk and the
+network (build k4): 50.69 MHz for 48 on the first seed, 49.9 to 53.4
+over six; the FPGA 43% full. On the 25F boards 51.6 to 54.5 MHz. All
+at speed grade 6.
 
-To get there the TLB is read twice, for the fetch PC and for X's data
-address, each from a register, and a translated load or store takes a
-cycle more (the address is registered before the lookup). That cycle
-costs: the Linux boot went from 1.83 to 2.21 cycles an instruction.
-Step 6 should win it back, for instance by looking up the base
-register's page while the adder runs.
+What it took, in the order it was found:
+
+- Retired instructions are counted a cycle late: the counter's enable
+  was at the end of the path from the cache's tag memory.
+- The TLB is read twice, for the fetch PC and for X's data address,
+  each from a register. A translated load or store at first took a
+  cycle more (the address registered before the lookup), which cost
+  the Linux boot a fifth of its speed; `FAST_XLATE` looks the page up
+  from the adder's sum in X's first cycle and won it back.
+- The cache's answer passes one LUT in the CPU before the registers it
+  enables, and the cache compares its tags on the carry chain
+  ([design.md](design.md), "The cache and the clock").
+
+In simulation the Linux boot with a login and commands takes about 4.1
+cycles an instruction with the 64 KB instruction cache; the cache's
+table in design.md has how it got there. On the board, Dhrystone came
+out within 2.5% of what simulation had said.

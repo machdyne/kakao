@@ -3,8 +3,11 @@
 The 64 bit CPU of the Kakao SOC. The goal: **Debian on our own CPU**,
 on the Sergei ML2 (ECP5 45F, 512 MB of DDR3), with Debian's own
 packages unmodified, and if it can be had Debian's own kernel too.
-Where it stands: Debian's base system runs on the board; Debian's init
-has not been tried (step 8).
+Where it stands: **Debian 13 boots on the board with its own init**
+(systemd 257, to its multi-user and graphical targets), from Debian's
+packages as they are, with our kernel; and, on the same card, with a
+busybox as init in seconds. [debian.md](debian.md) is how to make the
+card and what the two ways are. What is left is speed (step 9).
 
 ## What Debian asks for
 
@@ -28,7 +31,7 @@ So against kakao32 (RV32IMA, M/S/U, Sv32):
 | CSRs | 32 bit | 64 bit; mstatus with SXL/UXL (fixed at 64), FS | mechanical, plus FS |
 | paging | Sv32, two levels | Sv39, three levels (Linux also runs on it alone) | the walker one level deeper, wider tags in the TLB, the canonical address check |
 | memory port | 32 bit words | 64 bit loads and stores | the cache's data path 64 bits wide, or two accesses for a doubleword (to decide in step 1) |
-| physical addresses | 32 bit | 56 in Sv39 | stay 32 on the bus; a page table entry that points above 4 GB is an access fault |
+| physical addresses | 32 bit | 56 in Sv39 | stay 32 on the bus; a page table entry that points above 4 GB ought to be an access fault (it is a page fault: step 4) |
 
 Around the CPU nothing changes in kind: the machine stays QEMU `virt`
 (CLINT, PLIC, 16550s, virtio-mmio, syscon reset), which is what
@@ -98,10 +101,13 @@ grows.
       lr/sc and the AMOs for words and doublewords. Tests: `rv64um`,
       `rv64ua`. With step 1: 106 programs, each at four latencies and
       three random runs, all pass. The 87 others need paging (step 4).
-      Not done, and not tested by riscv-tests: an access fault for an
+      Not in, and not tested by riscv-tests: an access fault for an
       address above 4 GB (the port has 32 address bits; the upper bits
-      are dropped today). Not carried over from kakao32: the Zbb
-      rotates. PCs are 64 bits wide for now; the BTB keeps 30 bits of a
+      are dropped today). It was written and passes its test, with the
+      page table's case below, and the SOC then placed at 45 to 46 MHz
+      on three seeds where it places at 49.6 without: it waits for a
+      way to do it that costs no time. Not carried over from kakao32:
+      the Zbb rotates. PCs are 64 bits wide for now; the BTB keeps 30 bits of a
       target and D checks the rest.
 - [x] **3. C.** The queue still holds fetched words; D takes its
       instruction from either half of the head word, or from its upper
@@ -127,7 +133,7 @@ grows.
       addresses that are not canonical, and reserved bits in an entry
       are written and not known to be exercised. A page table entry
       that points above 4 GB is a page fault, not the access fault it
-      should be.
+      should be (written with step 2's, and out for the same reason).
 - [x] **5. The SOC at 64 bits.** `rtl/k_port64.v` puts kakao64's
       doubleword port on the cache's word port (a doubleword is two
       accesses); `CPU64` in `kakao_soc`; kboot builds for RV64
@@ -147,33 +153,41 @@ grows.
       (`sim/fptest`: 23 programs, on QEMU and on the simulated SOC),
       and a glibc program computing with doubles under Linux.
 - [x] **7. Timing and the board.** `make -C boards BOARD=sergei_ml2
-      CPU64=1`: 50.49 MHz for 48 (seed 2), 61% of the 45F's LUTs, 107
-      of 108 block RAMs (48.73 MHz as first placed, builds t2 and t3). It took registers between the CPU
-      and the cache in three places (see "Timing" below) and costs
-      speed. **Linux boots on the Sergei ML2** to a shell, first with a
+      CPU64=1`: 49.61 MHz for 48 (seed 2), 65% of the 45F's LUTs, all
+      108 block RAMs (48.73 MHz as first placed). It took registers
+      between the CPU and the cache in three places (see "Timing"
+      below), which cost speed, some of it won back since (step 9). **Linux boots on the Sergei ML2** to a shell, first with a
       busybox root on the card's second partition.
-- [ ] **8. Debian.** Debian 13.8's own base system (the root file
-      system of the official image: apt, dpkg, bash) runs on the board,
-      with a static busybox as init: a shell, the network by DHCP, the
-      time by NTP, `apt update` from Debian's archive. Not yet: Debian's
-      init (systemd), which is `apt install systemd-sysv` away and has
-      not been tried. `tools/mkdebian.sh` makes a card with a full
-      Debian by mmdebstrap on another machine; on the one machine it
-      was tried on, kboot did not find `boot.json` on the card it made,
-      and why is not known. One card showed older data beyond 500 MB
-      than had been written to it last; whether that was the card's
-      writing or ours is not settled.
-- [ ] **9. Speed.** Done: two requests in flight (below), and the
-      multiplier in DSP blocks (8 cycles for 66). Not done: the caches'
-      lines are 16 bytes, and waiting for memory is the largest single
-      share of the cycles; the page walks (three doublewords each, and
-      a TLB of 32 entries); a cache 64 bits wide; floating point
-      arithmetic in hardware; the SD card.
+- [x] **8. Debian.** On the Sergei ML2: Debian 13.8's own base system
+      (the root file system of the official image) with a static
+      busybox as init, a shell, the network by DHCP, the time by NTP,
+      apt from Debian's archive; then `apt install systemd-sysv` there,
+      and the next boot was systemd 257's, to `multi-user.target` and
+      `graphical.target`, in several minutes. Its one failure was ours
+      to fix outside Debian: systemd gives a device ninety seconds to
+      appear, udev had not started by then, and the serial console's
+      login was given up; the device tree's kernel arguments now give
+      it ten minutes. Both inits stay on the card and the device tree
+      chooses ([debian.md](debian.md)). `tools/mkdebian.sh` makes the
+      card: from Debian's official root file system (tried on the
+      board) or with mmdebstrap (not tried: on the one machine it was
+      run on, kboot did not find `boot.json` on the card, and why is
+      not known; kboot now says what it found on a card it cannot boot
+      from, and the script checks its image). Not tried: Debian's own
+      kernel.
+- [ ] **9. Speed.** Done: two requests in flight (below), the
+      multiplier in DSP blocks (8 cycles for 66), a TLB of 128 entries,
+      a data cache of 32 KB. Not done: the caches' lines are 16 bytes,
+      and waiting for memory is the largest single share of the cycles;
+      a page walk is three doublewords; a cache 64 bits wide; floating
+      point arithmetic in hardware; the SD card (a sector at a time
+      over SPI). systemd's boot is the measure now: minutes.
 
 ## Timing
 
-kakao32's SOC meets 48 MHz with the FPGA 43% full. With kakao64 it is
-60% full, and seeds alone gave 43 to 46 MHz. What made it pass:
+kakao32's SOC meets 48 MHz with the FPGA 43% full. With kakao64 it was
+60% full when first built (65% now), and seeds alone gave 43 to 46
+MHz. What made it pass:
 
 - A trap takes two cycles: found in one, taken from registers in the
   next.
@@ -199,21 +213,48 @@ cache did not take. No path of the above is put back: the SOC places
 at 50.5 MHz with it. Measured over the first 400 million cycles of a
 simulated Linux boot, with the board's 64 KB instruction cache: 6.06
 cycles an instruction for 6.83, 13% more instructions in the time.
-Where the rest goes, by what the CPU was waiting for: a load's or
-store's answer after its first cycle 43% of all cycles (memory, with
-lines of 16 bytes), fetches on their way 13%, page walks 9%.
+
+Those figures are with the simulation's memory writing every store on
+its own, which the boards do not do: with the controller's write
+combining, as built, the same run is 5.15 cycles an instruction. From
+there, each alone:
+
+| | cycles an instruction | |
+|---|---|---|
+| as above | 5.15 | |
+| TLB of 64 entries | 4.95 | +4% |
+| TLB of 128 entries (`TLB_BITS=7`, now kakao64's default) | 4.83 | +7% |
+| data cache of 32 KB | 4.89 | +5% |
+| data cache of 64 KB | 4.62 | +11% |
+| both caches 32 KB | 5.31 | -3% |
+
+The TLB is LUTs (4% of the 45F more). The data cache is block RAM,
+and the Sergei ML2's is all in use: 16 KB more is what four terminals
+take, and that is what the build now does: four terminals and 32 KB
+(`TERMS=4 D_KB=32`, all 108 blocks; a simulated boot with a script
+then takes 4.52 cycles an instruction for 4.72). With 128 TLB entries
+and the 16 KB cache, by what the CPU was waiting for: a load's or
+store's answer after its first cycle 34% of all cycles, fetches on
+their way 15%, page walks 6%, a translated address 7%.
 
 ## What is not known yet
 
-- **Simulating Debian.** A small Linux takes 20 to 25 minutes to boot
-  under Verilator. Debian with systemd would take many hours, so
-  Debian itself is tested on the board; simulation gets as far as a
-  user space built the way Debian's is.
+- **Where systemd's minutes go.** The first boot's log has the kernel
+  at its init after 6 s, systemd's first line at 27 s (its program and
+  libraries, from the card), its units loaded at 120 s, and the rest
+  after: udev's first pass over the devices alone ran two minutes. How
+  much of that is the CPU, the card, or the floating point the
+  firmware does for it has not been measured.
 - **How slow the SD card is** for a root file system of a gigabyte or
-  two: the I/O processor moves one sector at a time over SPI.
+  two: the I/O processor moves one sector at a time over SPI. In
+  simulation 23 MB read and summed took about a minute of the
+  machine's time, the sum included.
 - **How much floating point Debian's ordinary programs execute**, which
-  decides whether emulation is bearable. To be counted under QEMU
-  before step 6.
+  decides whether its arithmetic belongs in hardware.
 - **Whether Debian's kernel boots as it is.** It needs nothing QEMU
   `virt` does not have, but its initrd is tens of megabytes to load and
   unpack at this speed.
+- **Simulating Debian with systemd** is out of reach (a small Linux
+  takes 20 minutes to boot under Verilator): it is tested on the
+  board. Debian's base system under the busybox init is simulated, and
+  gives the same output as on QEMU for the same commands.

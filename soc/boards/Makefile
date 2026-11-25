@@ -30,6 +30,7 @@
 #   VIRTIO=n      virtio slots (2: the SD card as a disk and the network;
 #                 0: none, and without a terminal no I/O processor)
 #   I_KB=, D_KB=  the caches' sizes
+#   TLB_BITS=n    the TLB has 2^n entries
 #   FAST_MUL=0    the multiplier a bit a step instead of in DSP blocks
 #   KCACHE=0      Zeitlos's cache instead of k_cache
 #   LAYOUTS=      the keyboard layouts built in (fw/iop)
@@ -133,6 +134,16 @@ BOARDS = sergei_ml2 mozart_ml2 sergei_ml1 mozart_ml1 sergei_ml0 mozart_ml0 lakri
 
 KCACHE   ?= 1
 BTFN     ?= 0
+# the TLB's entries, as a power of two: 32, and 128 for kakao64 (a 64 bit
+# system's pages are spread wider, and its walks are three doublewords)
+TLB_BITS ?= $(if $(filter 1,$(CPU64)),7,5)
+# kakao64: a data cache of 32 KB, and the block RAM for it from the
+# terminals, four where kakao32 has eight (5% more instructions in the
+# time, docs/kakao64.md)
+ifeq ($(CPU64),1)
+  D_KB     ?= 32
+  TERMS    ?= 4
+endif
 D_KB     ?= 16
 ifeq ($(DEVICE),45k)
   I_KB     ?= 64
@@ -202,7 +213,9 @@ ifeq ($(CPU64),1)
   KERN_AT = 0x80200000
   DTB_AT  = 0x87f00000
   ISA     = rv64imafdc
-  BOOTARGS ?= root=/dev/vda2 rw rootwait
+  # (systemd's: it gives a device and a unit ninety seconds, and on this
+  # machine udev has not begun by then; no graphical target)
+  BOOTARGS ?= root=/dev/vda2 rw rootwait systemd.default_device_timeout_sec=600 systemd.default_timeout_start_sec=600 systemd.unit=multi-user.target
   SUF     = -64
 else
   KERN_AT = 0x80000000
@@ -271,12 +284,21 @@ ifeq ($(USBH),1)
 endif
 
 PARAMS = -chparam KCACHE $(KCACHE) -chparam I_KB $(I_KB) -chparam D_KB $(D_KB) \
-	-chparam BTFN $(BTFN) -chparam FAST_MUL $(FAST_MUL) \
+	-chparam BTFN $(BTFN) -chparam TLB_BITS $(TLB_BITS) -chparam FAST_MUL $(FAST_MUL) \
 	-chparam TERMINAL $(TERMINAL) -chparam TERMS $(TERMS) -chparam HIST $(HIST) -chparam USB $(USB) \
 	-chparam IOP_WORDS $(IOP_WORDS) -chparam VIRTIO $(VIRTIO)
 
 all: $(B)/kakao.bit card
 card: $(B)/kakao.dtb $(B)/boot.json
+# kakao64's card can also start the busybox that tools/mkdebian.sh puts
+# beside Debian as init: the same device tree with that in the kernel's
+# arguments, for boot.json to name (docs/debian.md)
+ifeq ($(CPU64),1)
+card: $(B)/kakao-busybox.dtb
+$(B)/kakao-busybox.dtb: $(B)/kakao.dtb
+	sed 's|\(bootargs = "[^"]*\)"|\1 init=/opt/kakao/busybox -- init"|' $(B)/kakao.dts > $(B)/kakao-busybox.dts
+	dtc -q -I dts -O dtb -o $@ $(B)/kakao-busybox.dts
+endif
 synth: $(B)/kakao.json
 	@grep -A40 "Number of cells" $(B)/synth.log | grep "DP16KD\|LUT4\|TRELLIS_FF\|MULT18X18D\|TRELLIS_DPR16X4" | tail -5
 

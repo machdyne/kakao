@@ -2,3 +2,4 @@ kboot*.elf
 kboot*.bin
 kboot*.hex
 ddr3_train.inc
+build

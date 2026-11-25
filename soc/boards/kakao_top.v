@@ -60,6 +60,7 @@ module kakao_top #(
 	parameter I_KB = 16,			// k_cache's instruction and data caches
 	parameter D_KB = 16,
 	parameter BTFN = 0,				// the CPU's static branch prediction
+	parameter TLB_BITS = 5,			// ...and its TLB: 2^TLB_BITS entries
 	parameter FAST_MUL = 0,			// ...and its multiplier in DSP blocks
 	parameter TERMINAL = 1,
 	parameter TERMS = 1,			// consoles, each with a terminal
@@ -326,7 +327,7 @@ module kakao_top #(
 `endif
 
 	kakao_soc #(
-		.CPU64(CPU64), .KCACHE(KCACHE), .I_KB(I_KB), .D_KB(D_KB), .BTFN(BTFN), .FAST_MUL(FAST_MUL),
+		.CPU64(CPU64), .KCACHE(KCACHE), .I_KB(I_KB), .D_KB(D_KB), .BTFN(BTFN), .TLB_BITS(TLB_BITS), .FAST_MUL(FAST_MUL),
 		.TERMINAL(TERMINAL), .TERMS(TERMS), .HIST(HIST), .IOP_HEX(IOP_HEX), .FONT_HEX(FONT_HEX),
 		.USB(USB), .IOP_WORDS(IOP_WORDS), .VIRTIO(VIRTIO),
 		.CACHE_KB(32),

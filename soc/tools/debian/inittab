@@ -1,0 +1,7 @@
+# Kakao: busybox is init until Debian's own (systemd-sysv) is installed,
+# which replaces /sbin/init. /opt/kakao/README says how.
+::sysinit:/opt/kakao/rcS
+ttyS0::respawn:-/bin/bash
+ttyS1::respawn:-/bin/bash
+::ctrlaltdel:/opt/kakao/busybox reboot
+::shutdown:/opt/kakao/busybox umount -a -r

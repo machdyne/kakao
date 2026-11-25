@@ -89,6 +89,9 @@ void vblk_poll(void)
 	const struct vdesc *d;
 
 	if (sd_busy()) return;
+	/* the sector written last: an error the card found only while it
+	   wrote is the request's, if the request is still in hand */
+	if (sd_write_failed() && rq.on) rq.status = ST_IOERR;
 
 	if (!rq.on) {
 		const volatile uint32_t *h;

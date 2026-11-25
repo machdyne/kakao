@@ -1,0 +1,17 @@
+#!/bin/sh
+# what a Debian init would do first, for a system that has none yet
+B=/opt/kakao/busybox
+$B mount -t proc proc /proc
+$B mount -t sysfs sys /sys
+$B mkdir -p /dev/pts /dev/shm
+$B mount -t devpts devpts /dev/pts
+$B mount -t tmpfs tmpfs /run
+$B mount -t tmpfs tmpfs /tmp
+$B hostname kakao64
+$B ip link set lo up
+echo
+echo "Debian $(cat /etc/debian_version) (riscv64) on the Kakao SOC, kakao64. /opt/kakao/README"
+# the network, if there is a cable: an address by DHCP, then the time
+( $B ip link set eth0 up 2>/dev/null &&
+  $B udhcpc -i eth0 -q -t 8 -T 3 -n -s /opt/kakao/udhcpc.sh > /dev/null 2>&1 &&
+  $B ntpd -q -n -p pool.ntp.org > /dev/null 2>&1 ) &

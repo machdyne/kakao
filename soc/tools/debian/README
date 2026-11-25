@@ -1,0 +1,29 @@
+Debian 13 (trixie) for riscv64 on the Kakao SOC with kakao64
+
+The card boots in one of two ways, by the device tree that
+/sys/linux/boot.json on its FAT partition names (soc/docs/debian.md):
+
+  kakao-busybox.dtb   a static busybox in this directory is init: a
+                      root shell on the serial console and the first
+                      terminal, and on the second, seconds after the
+                      kernel. No password, no services.
+  kakao.dtb           /sbin/init is init: Debian's own (systemd), once
+                      it is installed. Minutes, on this CPU.
+
+What is here for the first:
+
+  /opt/kakao/busybox  init (its table: /etc/inittab) and the tools the
+                      base system lacks: reboot, poweroff, ip, ping, vi,
+                      ... as links in /usr/local/sbin
+  /opt/kakao/rcS      mounts, the host name, DHCP on eth0, the time by NTP
+
+The clock starts at 1970 when there is no network: apt refuses the
+archive then. Set it:    date -s "2026-11-25 10:00"
+
+To install Debian's init, with a cable plugged in:
+
+  /opt/kakao/install-systemd
+
+Its steps are in it, to do by hand if it stops. Nothing of the busybox
+way is removed by it: name kakao-busybox.dtb in boot.json again (on a
+PC, or here: mount /dev/vda1 /mnt) and the card boots as before.

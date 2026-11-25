@@ -34,8 +34,8 @@ On Lakritz, Konfekt and Klinge it is a USB serial port (CDC-ACM,
 pins Zeitlos uses for it (`CONSOLE = usb` in the Makefile): these
 boards' pin files have no UART pins. As in Zeitlos, what is printed
 waits up to ten seconds for a program on the host to read it, and is
-dropped when no host is there at all. It has not run on a board. Lakritz's Ethernet is a
-PMOD (Katze) and is not built in.
+dropped when no host is there at all. It has not run on a board.
+Lakritz's Ethernet is a PMOD (Katze) and is not built in.
 
 Sergei and Mozart are the boards the Sechzig modules (ML0, ML1, ML2)
 plug into; a module's pins are the same on both but for what the board
@@ -46,9 +46,11 @@ Every board has console 0 on its UART at 1 Mbaud 8N1, the SD card, and
 (`ext/zeitlos/boards`), and so are the memory controllers, the DDMI
 output and the USB host controller.
 
-What is run on a board so far: **Sergei ML2 only**; with kakao64 also
-with the disk and the network, not yet with the mouse. Every board is built, placed and
-meets timing (`make release`); the SOC on the SDRAM controller passes
+What is run on a board so far: **Sergei ML2 only**, with both CPUs.
+With kakao32 everything tried worked: the terminals, the keyboard and
+the mouse, the disk, the network, reset. With kakao64, Debian
+(`../docs/debian.md`). Every board is built, placed and meets timing
+(`make release`); the SOC on the SDRAM controller passes
 `make -C ../sim sdram` against Zeitlos's model of the memory.
 
 ## kakao64
@@ -64,12 +66,58 @@ make BOARD=sergei_ml2 CPU64=1
 
 It is for the boards with 512 MB and a 45F. Its multiplier is four
 16 by 16 DSP blocks used four times over, eight cycles a product
-(`FAST_MUL=0`: 64 steps, no DSP blocks). The card's `/sys/linux` then holds `boot.json`, `kakao.dtb`,
-`fw_jump.bin` (OpenSBI for RV64 with `../fw/opensbi`'s patch) and
-`Image` (`../../buildroot/board/kakao_soc/linux64.config`); the root
-file system is the card's second partition. `../tools/mkdebian.sh`
-makes such a card. `make BOARD=sergei_ml2 kakao64-bare` places the CPU
-alone, for its size and clock.
+(`FAST_MUL=0`: 64 steps, no DSP blocks), its TLB 128 entries
+(`TLB_BITS=`). It has four terminals and a data cache of 32 KB, where
+kakao32's build has eight and 16 KB (`TERMS=8 D_KB=16` is that
+division of the block RAM again; more terminals are `screen`'s to
+give). `make BOARD=sergei_ml2 kakao64-bare` places the CPU alone, for
+its size and clock.
+
+Its card's `/sys/linux` holds:
+
+```
+boot.json           from build/<board>-64/
+kakao.dtb           from build/<board>-64/: the device tree
+kakao-busybox.dtb   from build/<board>-64/: the same, starting the busybox as init
+fw_jump.bin         OpenSBI for RV64, with ../fw/opensbi's patch
+Image               the kernel
+```
+
+and the root file system is the card's second partition
+(`root=/dev/vda2`): Debian. `../tools/mkdebian.sh` makes the whole
+card, and `../docs/debian.md` says how, and what the two device trees
+are for. Loaded as on QEMU's `virt` for RV64: OpenSBI at 0x8000_0000,
+the kernel at 0x8020_0000, the device tree at 0x87f0_0000.
+
+- **OpenSBI** 1.9 with the patch:
+
+  ```
+  git -C opensbi am ../soc/fw/opensbi/0001-emulate-F-and-D-arithmetic.patch
+  make -C opensbi PLATFORM=generic CROSS_COMPILE=riscv64-linux-gnu- \
+      FW_TEXT_START=0x80000000 FW_JUMP_ADDR=0x80200000 \
+      FW_JUMP_FDT_ADDR=0x87f00000 FW_PAYLOAD=n
+  ```
+
+- **The kernel**: Linux 6.6.18, unmodified, with
+  `../../buildroot/board/kakao_soc/linux64.config`, built as kakao32's
+  below.
+
+### One card for both CPUs
+
+kboot for kakao64 reads `/sys/linux/boot64.json` when there is one and
+`boot.json` otherwise; kboot for kakao32 reads `boot.json`. So a card
+can hold both systems, and the bitstream that is loaded chooses:
+
+```
+/sys/linux/boot.json       kakao32's list: fw_jump.bin, Image, rootfs.cpio, kakao.dtb
+/sys/linux/boot64.json     kakao64's list, with names of its own for its files:
+                           { "fw_jump64.bin": "0x80000000", "Image64": "0x80200000",
+                             "kakao64.dtb": "0x87f00000" }
+```
+
+(The names in a list are free; only that two files cannot have one
+name.) kakao32's root file system is loaded into memory, so it does
+not mind what the card's second partition holds.
 
 ## What a board gets
 
@@ -81,6 +129,7 @@ the 25F's die, and yosys and nextpnr use all of it.)
 | instruction + data cache | 64 + 16 KB | 16 + 16 KB |
 | the I/O processor's memory | 44 KB (20 blocks) | 44 KB (20 blocks) |
 | terminals | 8, and a scroll buffer of two screens for the first | 2; 1 with Ethernet (ML0) |
+| the same with kakao64 (`CPU64=1`) | 64 + 32 KB, 4 terminals and the scroll buffer: all 108 blocks | - |
 | block RAMs used, DDR3 board | 107 of 108 | 26 of 56 (Klinge: no I/O processor) |
 | block RAMs used, SDRAM board | 103 of 108 | 54 of 56; 55 with Ethernet |
 
@@ -92,8 +141,9 @@ five).
 
 All of it can be set on the command line: `I_KB=`, `D_KB=`,
 `FAST_MUL=`, `TERMS=` (1 to 10), `HIST=` (screens of scroll buffer for
-the first terminal, 0 to 3), `TERMINAL=0` (no picture and no
-keyboard: the serial console only, and the small I/O processor), `USB=0`, `VIRTIO=0`, `KCACHE=0`
+the first terminal, 0 to 3), `TLB_BITS=`, `TERMINAL=0` (no picture and
+no keyboard: the serial console only, and the small I/O processor),
+`USB=0`, `VIRTIO=0`, `KCACHE=0`
 (Zeitlos's cache instead of `k_cache`), `LAYOUTS="us gb de fr"` (the
 keyboard layouts built in, by Zeitlos's names).
 
@@ -103,6 +153,8 @@ and nothing else (`rtl/k_vcon.v`): no pins, no rate. Console 0 is the
 real UART and is also the first terminal.
 
 ## The SD card
+
+(kakao32's; kakao64's is under "kakao64" above.)
 
 A FAT partition (or a card that is one), and in `/sys/linux`:
 
@@ -163,6 +215,22 @@ for `tools/kload.py`, which sends the same files over the UART to the
 same addresses, OpenSBI first: what was loaded first is what is
 started.
 
+When kboot cannot boot from a card it says what it found there (on the
+DDR3 boards; the SDRAM boards' boot memory has no room for it): the
+first partition's type and place when there is no FAT, and otherwise
+the FAT's place and cluster size, how far towards `/sys/linux/boot.json`
+it got and the names in the directory it stopped in.
+`make -C fw/kboot hosttest` runs that code on the PC, and
+`fw/kboot/build/hosttest/hosttest <image or /dev/sdX>` on a card of
+your own.
+
+A card written with `dd` is all there only once `dd` has been made to
+wait for it: `dd if=card.img of=/dev/sdX bs=4M conv=fsync
+status=progress`, and `cmp -n $(stat -c %s card.img) card.img /dev/sdX`
+says whether it is. A card pulled early has the image's first part and,
+after that, what it held before; that has looked like a journal that
+cannot be read.
+
 ## The disk and the network
 
 With `sys/linux/kakao.dtb` from this build, Linux finds the SD card as
@@ -183,6 +251,8 @@ further terminal is a console of its own (`ttyS1` and on) with a login.
 ```
 Super with 1 to 9, or 0      that terminal (0 is the tenth)
 Super with Left or Right     the terminal before, the next
+Super with Up or Down        the first terminal's scroll buffer, a row
+Super with Page Up or Down   ...25 rows (a key typed returns)
 Super alone, or Scroll Lock  the terminal's menus: the keyboard's
                              layout, the colours, the cursor, reset
 Mouse, left button held      select text
@@ -202,3 +272,7 @@ fastest. The Sergei ML2 build, with everything in it and 107 of its 108
 block RAMs used, placed at 49.9 to 53.4 MHz with six seeds of six,
 Lakritz at 51.6 to 53.0 MHz with four of four, and every board met
 48 MHz with the first seed tried. All timing is for speed grade 6.
+
+With kakao64 the Sergei ML2 is 65% full and has less room: 49.61 MHz
+with seed 2, which is the seed its builds have used, and other seeds
+have given 45 to 50 (`../docs/kakao64.md`, "Timing").

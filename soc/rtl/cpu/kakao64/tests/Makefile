@@ -26,6 +26,7 @@ FAST_MUL ?= 0
 BTFN ?= 0
 BTB_BITS ?= 6
 FAST_XLATE ?= 1
+TLB_BITS ?= 5
 TRACE    ?= 0
 
 RT  = ../../../../ext/riscv-tests
@@ -105,11 +106,11 @@ HEX = $(addprefix build/,$(addsuffix .hex,$(TESTS)))
 # (build/tb_<cfg>/sim): Icarus runs these many times slower.
 VERILATE = verilator --binary --timing -Wno-fatal -Wno-WIDTH -Wno-UNUSED \
 	-Wno-CASEINCOMPLETE -Wno-STMTDLY -Wno-INITIALDLY --top-module tb_kakao64 -o sim \
-	-GFAST_MUL=$(FAST_MUL) -GBTFN=$(BTFN) -GBTB_BITS=$(BTB_BITS) -GFAST_XLATE=$(FAST_XLATE) -GTRACE=$(TRACE)
+	-GFAST_MUL=$(FAST_MUL) -GBTFN=$(BTFN) -GBTB_BITS=$(BTB_BITS) -GFAST_XLATE=$(FAST_XLATE) -GTLB_BITS=$(TLB_BITS) -GTRACE=$(TRACE)
 SRC = $(CURDIR)/tb_kakao64.v $(abspath $(RTL))
 
 # (the core's options are compiled in: build/options changes when they do)
-OPTS = $(FAST_MUL) $(BTFN) $(BTB_BITS) $(FAST_XLATE) $(TRACE)
+OPTS = $(FAST_MUL) $(BTFN) $(BTB_BITS) $(FAST_XLATE) $(TLB_BITS) $(TRACE)
 build/options: FORCE
 	@mkdir -p build
 	@echo "$(OPTS)" | cmp -s - $@ || echo "$(OPTS)" > $@

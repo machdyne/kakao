@@ -151,13 +151,34 @@ ends with a dot for each program and `ALL PASS`, the firmware
 OPENSBI=<fw_jump.bin>` runs the same image on QEMU's `virt`, whose
 floating point is its own.
 
-Linux: the same with `+load=<Image>@80200000` and a card
-(`SIMC="-DCPU64 -DSIMSD -DSIMNET"`, `-GVIRTIO=2`, `+sd=<image>`), whose
-second partition is the root file system. `SOCD=-DK_TRAPS` prints every
-trap kakao64 takes, and with `+kw` every register it writes.
+Linux, as the Sergei ML2 build has it (run from this directory: the
+boot memories' files are named from here):
 
-The card's size is `SOCD=-DSIM_SD_MB=<n>`. A card larger than the
-simulation can hold (about 500 MB) is two windows of it,
+```
+make sim64 SIMC="-DSIMSD -DSIMNET" SOCD="-DSIM_SD_MB=96" \
+    SOCG="-GVIRTIO=2 -GFAST_MUL=1 -GWC=1 -GI_KB=64 -GD_KB=32 -GTLB_BITS=7 -GRXPIN=1"
+obj/simsoc64 +load=<fw_jump.bin>@80000000 +load=<Image>@80200000 \
+    +load=<kakao.dtb>@87f00000 +sd=card.img +sdout=after.img +type=script.txt
+```
+
+The card's second partition is the root file system. `-GWC=1` is the
+memory controller's write combining, which the boards have and the
+simulation's memory leaves out unless told (without it the same boot
+takes a fifth more cycles). `-GRXPIN=1` is needed for a script to be
+typed at Linux. The end of the run says how many cycles and
+instructions it was, and by what the CPU was waiting for. About 20
+minutes for a boot to a prompt.
+
+`SOCD=-DK_TRAPS` prints every trap kakao64 takes, and with `+kw` every
+register it writes.
+
+The card's size is `SOCD=-DSIM_SD_MB=<n>`, up to about 120: Verilator
+will not have a larger memory. A larger card is two windows of it,
 `-DSIM_SD_LOW_MB=`, `-DSIM_SD_HI_MB=` and `-DSIM_SD_HILEN_MB=`; the
 rest reads as zeros (`sd_card.v`). `+sd=` is then the two windows one
 after the other.
+
+Debian's base system has been run this way (a 120 MB card made of
+`tools/mkdebian.sh`'s root, without its documents), with the same
+commands as on QEMU and the same output; systemd has not: its boot is
+hours of simulation.

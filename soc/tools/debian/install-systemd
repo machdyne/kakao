@@ -1,0 +1,46 @@
+#!/bin/sh
+# Installs Debian's own init (systemd) and what a small system wants
+# beside it, and sets it up for this machine. Run it under the busybox
+# init, with the network up and the clock about right. On this CPU it
+# takes a good while. Afterwards the card boots into systemd when
+# /sys/linux/boot.json names kakao.dtb, and as before when it names
+# kakao-busybox.dtb.
+set -e
+export DEBIAN_FRONTEND=noninteractive
+[ "$(date +%Y)" -ge 2026 ] || { echo "the clock is wrong ($(date)): set it first, date -s \"YYYY-MM-DD hh:mm\""; exit 1; }
+apt-get update
+apt-get install -y systemd-sysv systemd-timesyncd udev dbus iproute2 ifupdown \
+	dhcpcd-base iputils-ping less vim-tiny procps kmod
+
+printf 'auto lo\niface lo inet loopback\n\nallow-hotplug eth0\niface eth0 inet dhcp\n' > /etc/network/interfaces
+echo kakao64 > /etc/hostname
+printf '127.0.0.1\tlocalhost\n127.0.1.1\tkakao64\n' > /etc/hosts
+printf '/dev/vda2\t/\text4\terrors=remount-ro\t0 1\n' > /etc/fstab
+
+# A slow machine. systemd waits ninety seconds for a device and for a
+# unit to start, and here udev has not even begun by then: the serial
+# console's device "timed out" and with it the login there. (The
+# device tree's kernel arguments say the same; this is for a card
+# whose kakao.dtb is older.)
+mkdir -p /etc/systemd/system.conf.d
+printf '[Manager]\nDefaultTimeoutStartSec=600s\nDefaultTimeoutStopSec=120s\nDefaultDeviceTimeoutSec=600s\n' \
+	> /etc/systemd/system.conf.d/kakao.conf
+
+# no graphical target, a login on the second terminal as well (the
+# serial console, which is the first terminal, gets one by itself)
+systemctl set-default multi-user.target
+systemctl enable serial-getty@ttyS1.service
+# what would only use the CPU and the card now and then
+systemctl disable apt-daily.timer apt-daily-upgrade.timer fstrim.timer \
+	dpkg-db-backup.timer e2scrub_all.timer 2> /dev/null || true
+# the journal in memory, not on the card
+mkdir -p /etc/systemd/journald.conf.d
+printf '[Journal]\nStorage=volatile\nRuntimeMaxUse=8M\n' > /etc/systemd/journald.conf.d/kakao.conf
+
+echo root:kakao | chpasswd
+sync
+echo
+echo "Done. root's password is \"kakao\" (passwd changes it)."
+echo "For systemd, /sys/linux/boot.json on the FAT partition must name kakao.dtb:"
+echo "  mount /dev/vda1 /mnt; cat /mnt/sys/linux/boot.json"
+echo "then: sync; reboot"

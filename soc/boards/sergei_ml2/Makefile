@@ -60,6 +60,7 @@ sim-kboot: $(KHEX)
 # dosfstools: FAT16 with no partition table, and FAT32 in a partition.
 # On each, /sys/linux/boot.json names a program with a long name beside
 # it and a file in the root, which the program prints a byte from.
+# (K64=1: the FAT32 card has the list as boot64.json.)
 # (the program: lui a0, 0x80021; lbu a0, 0(a0); lui a1, 0x10000;
 # sb a0, 0(a1); j .)
 sim-sdboot: $(KHEX)
@@ -76,6 +77,14 @@ sim-sdboot: $(KHEX)
 		mmd -i $$i ::/sys ::/sys/linux && \
 		mcopy -i $$i build/card/boot.json build/card/a-program-with-a-long-name.bin ::/sys/linux/ && \
 		mcopy -i $$i build/card/data.bin ::/DATA.BIN || exit 1; done
+ifeq ($(K64),1)
+	# kakao64's kboot reads boot64.json where there is one: the FAT32
+	# card gets the list under that name, and a boot.json that names
+	# nothing there is
+	printf '{\n\t"not-there.bin": "0x80000000"\n}\n' > build/card/wrong.json
+	mcopy -i build/card/fat32.img@@1M build/card/boot.json ::/sys/linux/boot64.json
+	mcopy -o -i build/card/fat32.img@@1M build/card/wrong.json ::/sys/linux/boot.json
+endif
 	for i in fat16 fat32; do \
 		verilator --binary --timing -DSYNTHESIS -Wno-fatal -Wno-WIDTH -Wno-UNUSED \
 			-Wno-CASEINCOMPLETE -Wno-STMTDLY -Wno-INITIALDLY --top-module tb_kboot \

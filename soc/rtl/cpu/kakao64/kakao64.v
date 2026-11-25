@@ -248,6 +248,9 @@ module kakao64 #(
 	// the TLB: { tag, ppn[19:0], D, U, X, W, R }
 	localparam TLB_N    = 1 << TLB_BITS;
 	localparam TLB_TAGW = 27 - TLB_BITS;		// of an Sv39 page number
+	// (in LUTs: a larger one would otherwise be taken for block RAM, with
+	// the fetch PC and the data address as its address registers)
+	(* ram_style = "distributed" *)
 	reg [TLB_TAGW+24:0] tlb [0:TLB_N-1];
 	reg [TLB_N-1:0]     tlb_v;
 

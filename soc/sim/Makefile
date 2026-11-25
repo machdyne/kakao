@@ -126,8 +126,7 @@ usb:
 	vvp -n obj/tb_iop_usb_hub | grep -v "^\[\|VCD"
 
 # the mouse plugged in at the end of the keyboard's test, 8 ms after the
-# last key: known to fail; MT_DELAY=960000 (20 ms later) passes
-# (tb_iop_usb.v says what is known)
+# last key (tb_iop_usb.v: it used to fail, for the simulation's reasons)
 usb-late:
 	@mkdir -p obj
 	$(MAKE) -C ../fw/iop

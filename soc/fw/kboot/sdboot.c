@@ -16,6 +16,11 @@
  *     "kakao.dtb":     "0x81f00000"
  *   }
  *
+ * kboot for kakao64 looks for /sys/linux/boot64.json first, and for
+ * boot.json when that is not there: so one card boots the board with
+ * either CPU, each from the files its own list names (they need other
+ * names where both lists would say Image or fw_jump.bin).
+ *
  * A name is a file in /sys/linux, or with a slash in front a path
  * from the card's root: so a card that also boots the LiteX SOC keeps
  * one Image and one rootfs.cpio in its root, beside LiteX's own
@@ -29,6 +34,7 @@
  * RV32 Linux cannot use what lies below its own image.)
  */
 
+#ifndef SD_HOST		/* (hosttest.c has the card as a file) */
 #define SPI_DATA  (*(volatile uint32_t *)0x03000800)
 #define SPI_STAT  (*(volatile uint32_t *)0x03000804)
 #define SPI_CTRL  (*(volatile uint32_t *)0x03000808)
@@ -125,6 +131,8 @@ static int sd_read(uint32_t lba, uint32_t *to) {
 	return ok;
 }
 
+#endif
+
 /* -- the file system -- */
 
 static uint32_t sec[128];		/* a sector of a directory or a file's end */
@@ -132,6 +140,33 @@ static uint32_t fat[128];		/* a sector of the table */
 static uint32_t fat_at;			/* which one (0: none) */
 static uint32_t v_fat, v_data, v_root, v_rootn;	/* sectors; v_root a cluster on FAT32 */
 static uint8_t  v_spc, v_32;
+#ifdef SD_SAYS
+/* When the card cannot be booted from, say what was found on it: the
+ * reason is then on the screen and not a guess. (Not in the 8 KB boot
+ * memory of the SDRAM boards: there is no room.) */
+static uint32_t v_base;			/* the volume's first sector */
+static uint32_t d_ps, d_pn;		/* sector 0's first partition: where, how long */
+static uint16_t d_sig0, d_sig1, d_bps;
+static uint8_t  d_pt, d_vol;	/* ...its type; a volume's first sector was read */
+static void say_mbr(void) {
+	print("sd: sector 0 ends "); print_hex(d_sig0, 4);
+	print(", partition 1: type "); print_hex(d_pt, 2);
+	print(" at "); print_hex(d_ps, 8);
+	print(", "); print_hex(d_pn, 8); print(" sectors\n");
+	if (d_vol) {
+		print("sd: the volume's first sector ends "); print_hex(d_sig1, 4);
+		print(", "); print_hex(d_bps, 4); print(" bytes a sector, ");
+		print_hex(v_spc, 2); print(" sectors a cluster\n");
+	}
+}
+static uint8_t  f_list;			/* fat_find prints the names it passes */
+static void say_fs(void) {
+	print(v_32 ? "sd: FAT32" : "sd: FAT16");
+	print(" at sector "); print_hex(v_base, 8);
+	print(", "); print_hex(v_spc, 2); print(" sectors a cluster, data at "); print_hex(v_data, 8);
+	print("\n");
+}
+#endif
 
 #define B(p, o)   (((const uint8_t *)(p))[o])
 #define W16(p, o) (B(p, o) | B(p, o + 1) << 8)
@@ -140,13 +175,24 @@ static uint8_t  v_spc, v_32;
 static int fat_mount(void) {
 	uint32_t base = 0, tot, fsz, rsv, nclu;
 	if (!sd_read(0, sec)) return 0;
+#ifdef SD_SAYS
+	d_sig0 = W16(sec, 510); d_pt = B(sec, 0x1c2);
+	d_ps = W32(sec, 0x1c6); d_pn = W32(sec, 0x1ca); d_vol = 0;
+#endif
 	if (W16(sec, 510) != 0xaa55) return 0;
 	if (!((B(sec, 0) == 0xeb || B(sec, 0) == 0xe9) && W16(sec, 11) == 512)) {
 		/* a partition table: the first partition */
 		base = W32(sec, 0x1c6);
 		if (!base || !sd_read(base, sec)) return 0;
+#ifdef SD_SAYS
+		d_vol = 1; d_sig1 = W16(sec, 510); d_bps = W16(sec, 11); v_spc = B(sec, 13);
+#endif
 		if (W16(sec, 510) != 0xaa55 || W16(sec, 11) != 512) return 0;
 	}
+#ifdef SD_SAYS
+	d_vol = 1; d_sig1 = W16(sec, 510); d_bps = W16(sec, 11);
+	v_base = base;
+#endif
 	v_spc = B(sec, 13);
 	rsv = W16(sec, 14);
 	v_rootn = W16(sec, 17);
@@ -221,6 +267,9 @@ static int fat_find(uint32_t dir, const char *name, int n, uint32_t *clu, uint32
 						if (e[8] != ' ') { sn[j++] = '.'; for (k = 8; k < 11 && e[k] != ' '; k++) sn[j++] = e[k]; }
 						for (k = 0; k < n && k < j && sn[k] == up(name[k]); k++) ;
 						hit = (k == n && j == n);
+#ifdef SD_SAYS
+						if (f_list) { sn[j] = 0; print(" "); print(sn); }
+#endif
 					}
 					if (hit) {
 						*clu = W16(e, 26) | (v_32 ? (uint32_t)W16(e, 20) << 16 : 0);
@@ -276,8 +325,35 @@ static int sd_boot(void) {
 	int n, loaded = 0;
 
 	if (!sd_init()) { print("sd: no card\n"); return 0; }
-	if (!fat_mount()) { print("sd: no FAT16 or FAT32 on it\n"); return 0; }
-	if (!fat_open("boot.json", 9, &clu, &size)) { print("sd: no /sys/linux/boot.json\n"); return 0; }
+	if (!fat_mount()) {
+		print("sd: no FAT16 or FAT32 on it\n");
+#ifdef SD_SAYS
+		say_mbr();
+#endif
+		return 0;
+	}
+#if __riscv_xlen == 64 || defined(SD_BOOT64)
+	if (fat_open("boot64.json", 11, &clu, &size)) print("sd: boot64.json\n");
+	else
+#endif
+	if (!fat_open("boot.json", 9, &clu, &size)) {
+		print("sd: no /sys/linux/boot.json\n");
+#ifdef SD_SAYS
+		/* how far it got, and what is there instead */
+		{
+			uint32_t d1 = 0, d2 = 0;
+			int a = fat_find(0, "sys", 3, &d1, &size);
+			int b = a && fat_find(d1, "linux", 5, &d2, &size);
+			say_fs();
+			print(!a ? "sd: no /sys. In /:" : !b ? "sd: no /sys/linux. In /sys:" : "sd: in /sys/linux:");
+			f_list = 1;
+			fat_find(!a ? 0 : !b ? d1 : d2, "", 0, &clu, &size);
+			f_list = 0;
+			print("\n");
+		}
+#endif
+		return 0;
+	}
 	if (size > 508 || !sd_read(v_data + (clu - 2) * v_spc, js)) { print("sd: boot.json: too long\n"); return 0; }
 	((char *)js)[size] = 0;
 

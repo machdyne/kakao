@@ -1,6 +1,6 @@
 # Kakao
 
-Kakao is a set of operating systems for Machdyne FPGA computers: each is a distribution or a port of a system to the Kakao SOC, a computer for the FPGA with CPUs of its own.
+Kakao is a set of RISC-V operating systems for Machdyne FPGA computers: each is a distribution or a port of a system to Kakao SOC, a computer for the FPGA with CPUs of its own.
 
 | System | CPU | Status |
 | ------ | --- | ------ |

@@ -3,9 +3,12 @@
 Debian 13 (trixie) for riscv64 on the Kakao SOC with kakao64: Debian's
 own packages, unmodified, from Debian's archive, on our kernel (Linux
 6.6.18 with `buildroot/board/kakao_soc/linux64.config`) and OpenSBI 1.9
-with the patch that does floating-point arithmetic
-(`fw/opensbi`). It runs on the Sergei ML2; [kakao64.md](kakao64.md) is
-the CPU and how it got here.
+with the patch that does floating-point arithmetic (`fw/opensbi`). It
+runs on the Sergei ML2. [kakao64.md](kakao64.md) is the CPU.
+
+A release has the card ready made (`kakao-linux-debian-<version>-<board>.img.xz`):
+write it as under "Making a card" below, load the bitstream, and it
+boots to a root shell.
 
 ## The card
 
@@ -56,30 +59,6 @@ mount /dev/vda1 /mnt
 vi /mnt/sys/linux/boot.json        # "kakao.dtb" or "kakao-busybox.dtb"
 umount /mnt; sync; reboot
 ```
-
-### What systemd needed
-
-On the first boot (Sergei ML2, 25 Nov) systemd reached its targets, and
-there was no login on the serial console: it waits ninety seconds for a
-device to appear, and udev had not started by then
-(`Timed out waiting for device dev-ttyS0.device`, and it does not try
-again). The device tree's kernel arguments now say
-
-```
-systemd.default_device_timeout_sec=600 systemd.default_timeout_start_sec=600 systemd.unit=multi-user.target
-```
-
-and `/opt/kakao/install-systemd` writes the same into
-`/etc/systemd/system.conf.d`, turns off the timers that would only use
-the CPU and the card (apt's daily ones, fstrim, e2scrub, the dpkg
-backup), keeps the journal in memory, and enables a login on the second
-terminal (`serial-getty@ttyS1`; the serial console, which is also the
-first terminal, gets its own). These settings have not yet been through
-a boot on the board.
-
-`systemd-logind` failed once and started at the second try, and
-`bpf-restrict-fs` says the kernel has no BPF LSM; neither stops
-anything.
 
 ## Making a card
 
@@ -156,3 +135,26 @@ On QEMU, for a look before the card is written: the command is in
 - systemd's boot time: what of it can be turned off, and what the
   machine can be made faster at.
 - A swap, a second user, ssh's server: Debian's to install.
+
+## Notes: what systemd needed
+
+On the first boot (Sergei ML2, 25 Nov) systemd reached its targets, and
+there was no login on the serial console: it waits ninety seconds for a
+device to appear, and udev had not started by then
+(`Timed out waiting for device dev-ttyS0.device`, and it does not try
+again). The device tree's kernel arguments now say
+
+```
+systemd.default_device_timeout_sec=600 systemd.default_timeout_start_sec=600 systemd.unit=multi-user.target
+```
+
+and `/opt/kakao/install-systemd` writes the same into
+`/etc/systemd/system.conf.d`, turns off the timers that would only use
+the CPU and the card (apt's daily ones, fstrim, e2scrub, the dpkg
+backup), keeps the journal in memory, and enables a login on the second
+terminal (`serial-getty@ttyS1`; the serial console, which is also the
+first terminal, gets its own). With them systemd's login is there.
+
+`systemd-logind` failed once and started at the second try, and
+`bpf-restrict-fs` says the kernel has no BPF LSM; neither stops
+anything.

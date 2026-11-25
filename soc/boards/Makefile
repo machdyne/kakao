@@ -10,10 +10,11 @@
 #   make BOARD=<board> synth    only build/<board>/kakao.json, and what it
 #                               takes of the FPGA (build/<board>/synth.log)
 #   make boards                 the boards there are
-#   make release                every board's bitstream and card files as
-#                               zips in build/release, with a summary
-#                               (../tools/release.sh; RELEASE="-v 1.0 -c <dir>"
-#                               and so on are its options)
+#   make release RELEASE="-i <inputs>"
+#                               the release: every board's bitstreams and
+#                               card files, and Debian's card images, in
+#                               build/release with a summary
+#                               (../tools/release.sh says what <inputs> is)
 #
 # Boards: sergei_ml2 mozart_ml2 (45F, 512 MB DDR3), sergei_ml1 mozart_ml1
 # (45F, 32 MB SDRAM), sergei_ml0 mozart_ml0 lakritz (25F, 32 MB SDRAM),
@@ -128,6 +129,10 @@ else
 endif
 
 BOARDS = sergei_ml2 mozart_ml2 sergei_ml1 mozart_ml1 sergei_ml0 mozart_ml0 lakritz konfekt klinge
+# ...those kakao64 is for (512 MB and a 45F), and those that have been
+# run on a board (tools/release.sh says so in what it makes)
+BOARDS64 = sergei_ml2 mozart_ml2
+TESTED   = sergei_ml2
 
 # -- what a board gets, by what it has room for --
 # (block RAM decides: the 45F has 108 blocks, the 25F and the 12F 56)
@@ -304,6 +309,10 @@ synth: $(B)/kakao.json
 
 boards:
 	@echo $(BOARDS)
+boards64:
+	@echo $(BOARDS64)
+tested:
+	@echo $(TESTED)
 
 release:
 	YOSYS="$(YOSYS)" NEXTPNR="$(NEXTPNR)" ECPPACK="$(ECPPACK)" MAKEFLAGS= \
@@ -400,5 +409,5 @@ endif
 clean:
 	rm -rf build
 
-.PHONY: kakao64-bare all card synth boards seeds release clean FORCE
+.PHONY: kakao64-bare all card synth boards boards64 tested seeds release clean FORCE
 .PRECIOUS: $(B)/kakao.json $(B)/kakao.config

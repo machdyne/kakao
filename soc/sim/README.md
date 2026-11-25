@@ -1,25 +1,22 @@
-# Linux on kakao32, in simulation
+# Linux in simulation
 
-`sim_top.v` is kakao32 with a memory, a CLINT, a 16550 and a LiteX
-UART: enough of a machine for OpenSBI and Linux. `sim_main.cpp` runs
-it under Verilator, loads the binaries, prints the console and can
-type a script at it.
+Both CPUs and the whole SOC under Verilator: `sim_main.cpp` runs a
+model, loads the binaries, prints the console and can type a script at
+it.
 
-It boots the Kakao image in `../../images` as it is: OpenSBI 1.9
-(unmodified, generic platform), then the prebuilt Linux 6.1 kernel and
-root file system, to the login prompt; logging in as root and running
-a few commands (`uname -a`, `cat /proc/cpuinfo`, `free`, `ls /`,
-`echo 6*7 | bc`) ends at 552 million clock cycles: 11.5 simulated
-seconds at 48 MHz, some five minutes of simulation. That is 249
-million instructions at 2.21 cycles each, with this memory, which
-answers every request the next cycle; a real cache and memory will
-cost more.
+| | |
+|---|---|
+| `make boot OPENSBI=...` | kakao32 alone on a memory that answers at once (`sim_top.v`), booting the image in `../../images` |
+| `make boot SIM=simsoc ...` | the SOC (`sim_soc.v`: `rtl/kakao_soc.v` with a main memory that takes its time), with terminals, a disk and a network as asked for |
+| `make sim64` | the SOC with kakao64 |
+| `make ddr3`, `make sdram` | the SOC on Zeitlos's memory controllers and their models (Icarus) |
+| `make rom` | the PLIC and the UART's interrupts |
+| `make usb`, `make usb-late` | the I/O processor with a USB keyboard and a mouse |
 
-The prebuilt kernel has only the LiteX UART for a console (no 8250, no
-SBI console), which is why the simulated machine has one. A kernel
-built from `buildroot/board/qemu/linux.config` uses the 16550.
+A boot to a prompt is some five minutes for the CPU alone and about
+twenty for the SOC.
 
-## Running it
+## kakao32 alone
 
 Needs Verilator, dtc and a RISC-V Linux gcc for OpenSBI
 (`gcc-riscv64-linux-gnu` builds RV32 OpenSBI).
@@ -111,29 +108,6 @@ reboot
 `EXTRA=-DVDEBUG SOCD="-DK_IOP_LOG -DK_VIRTIO_LOG"` writes the disk's
 requests and the virtio registers' traffic into the log.
 
-## The SOC, with the cache
-
-`obj/simsoc` (`make boot SIM=simsoc ...`, run from this directory) is
-`sim_soc.v`: `rtl/kakao_soc.v` -- the CPU, Zeitlos's unified cache and
-the bus -- with a main memory that takes its time: 6 cycles for a read
-of a new 16-byte block, 1 for the rest of it, 10 for a write. (Zeitlos
-measures 10 for a random read of its DDR3 controller, and a write is a
-read and a write there, so the real thing is slower still.)
-
-The same boot, login and script:
-
-| | cycles | cycles an instruction | at 48 MHz |
-|---|---|---|---|
-| CPU on an ideal memory (`obj/sim`) | 552 million | 2.21 | 11.5 s |
-| SOC, 32 KB cache (`make CACHE_KB=32`) | 1,340 million | 5.39 | 28 s |
-| SOC, 8 KB cache | 1,748 million | 7.07 | 36 s |
-
-So the memory system, not the CPU, sets the speed, by a wide margin.
-The cache is the one Zeitlos uses on its 25F boards: direct-mapped, one
-array for instructions and data, 16-byte lines, write-through. Linux
-wants more: separate instruction and data caches, two ways, longer
-lines.
-
 ## kakao64
 
 `make sim64` builds `obj/simsoc64`: the SOC with kakao64, 256 MB, and a
@@ -182,3 +156,35 @@ Debian's base system has been run this way (a 120 MB card made of
 `tools/mkdebian.sh`'s root, without its documents), with the same
 commands as on QEMU and the same output; systemd has not: its boot is
 hours of simulation.
+
+---
+
+# Notes
+
+## The first numbers
+
+`sim_top.v` is kakao32 with a memory, a CLINT, a 16550 and a LiteX
+UART: enough of a machine for OpenSBI and Linux. It boots the Kakao
+image in `../../images` as it is: OpenSBI 1.9 (unmodified, generic
+platform), then the prebuilt Linux 6.1 kernel and root file system, to
+the login prompt; logging in as root and running a few commands
+(`uname -a`, `cat /proc/cpuinfo`, `free`, `ls /`, `echo 6*7 | bc`) ends
+at 552 million clock cycles: 11.5 simulated seconds at 48 MHz. That is
+249 million instructions at 2.21 cycles each, with a memory that
+answers every request the next cycle.
+
+The prebuilt kernel has only the LiteX UART for a console (no 8250, no
+SBI console), which is why the simulated machine has one.
+
+With Zeitlos's unified cache (`-GKCACHE=0`) and a main memory of 6
+cycles for a read of a new 16-byte block, 1 for the rest of it and 10
+for a write, the same boot, login and script:
+
+| | cycles | cycles an instruction | at 48 MHz |
+|---|---|---|---|
+| CPU on an ideal memory (`obj/sim`) | 552 million | 2.21 | 11.5 s |
+| SOC, 32 KB cache (`make CACHE_KB=32`) | 1,340 million | 5.39 | 28 s |
+| SOC, 8 KB cache | 1,748 million | 7.07 | 36 s |
+
+So the memory system, not the CPU, sets the speed, by a wide margin:
+which is why the SOC has a cache of its own (`../docs/design.md`).

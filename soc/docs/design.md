@@ -68,73 +68,8 @@ empties the instruction cache; a line the data cache holds unwritten
 is written back before it is fetched from memory as instructions. Bit 0
 of 0x0300_0110 turns it on (off at reset; turning it on empties it).
 
-Numbers, in simulation with a memory that answers as the DDR3
-controller does (a new block after 10 cycles, each further word of it
-after 2), for the Linux boot to a shell and five commands, about 250
-million instructions:
-
-| | cycles | per instruction |
-|---|---|---|
-| the CPU on an ideal memory (before FAST_XLATE) | 552,108,354 | 2.21 |
-| Zeitlos's cache, 32 KB, stores written through | 1,635,594,379 | 6.57 |
-| k_cache 16 + 16 KB | 1,256,831,423 | 4.99 |
-| the same, the CPU with FAST_XLATE (from here on) | 1,167,668,906 | 4.61 |
-| k_cache 64 + 16 KB | 976,824,502 | 3.87 |
-| k_cache 64 + 32 KB | 949,939,059 | 3.73 |
-
-(Before FAST_XLATE: 32 + 32 KB 4.43, 64 + 16 KB 4.26, 64 + 64 KB 3.99.)
-
-Where the time goes with 16 + 16 KB: of 24.9 million line fills, 18.4
-million are for instructions (5.9% of fetches miss), and a fill is
-about 18 cycles of memory: 10 for the block and 2 for each further
-word, a word at a time over the bus. Three of four fetches that miss
-are of the line after the last one that missed: code run for the first
-time, straight on. So:
-
-- The instruction cache is where size pays, on boards with block RAM
-  to spare (the Sergei ML2 build takes `I_KB`, `D_KB`).
-- Fetching the next line ahead was built and works, and is on the
-  branch `kakao32-prefetch`, not here: it turns 13.8 million misses
-  into waits of 12.6 cycles on average, because the CPU is through a
-  line long before the next one has arrived, and the boot gains 2%.
-- What would help both is a line arriving sooner: the DDR3 controller
-  handing over its 16-byte block at once (it has it in a register)
-  would make a fill 11 cycles instead of 18; two blocks from one
-  ACTIVATE would make 32-byte lines worth having.
-- A fetch or load that misses is answered when its word arrives, not
-  when the line is complete; that gains under 1%.
-- The CPU's static branch prediction (`BTFN`) gains 0.7% here.
-
-A request's registers are loaded whenever a request could be taken,
-without waiting to know that the one before it hit: a fetch or load
-that misses is put back and looked up again, two cycles on a miss.
-That, and what else kakao64 needed between it and the cache (a port
-that turns a doubleword into two accesses and holds two requests), is
-in [kakao64.md](kakao64.md), "Timing"; kakao64's numbers are there
-too.
-
-### The cache and the clock
-
-The SOC's longest path starts in the instruction cache's tag memory: a
-block RAM's output is there 5.6 ns after the clock, the comparison
-with the address follows, and its result decides in the same cycle
-what the CPU does next. What was done about it:
-
-- The tags are compared on the carry chain, not in a tree of LUTs.
-- The answer to the CPU (`c_ack`, `c_rdy`) has one comparison for both
-  caches: each of its bits takes the instruction cache's tag or the
-  data cache's, as the request is a fetch or not. The caches' own two
-  comparisons are still there for what is not in a hurry (a store into
-  the cache, the miss).
-- What decides nothing in that cycle does not wait for it: the bus's
-  address and data registers load with every request.
-- In the CPU the answer passes one LUT before the registers it enables
-  (`docs/kakao32.md`).
-
-The I/O processor had the next longest: its memory's and the text
-mode's block RAM outputs went straight into picorv32's instruction
-decoding. What it reads goes through a register now, and each of its
-accesses takes a cycle more.
+What it gives, how it was arrived at, and what was done for the clock
+are at the end ("Notes on the cache").
 
 ## The terminal
 
@@ -321,7 +256,7 @@ both CPUs' systems. Without a card kboot takes the same files over the
 UART (`tools/kload.py`), and a card it cannot boot from it describes.
 `boards/README.md` has what goes on the card.
 
-## Later options
+## Not built, thought of
 
 - A VGA/EGA register front on the text mode with a Linux fork (vgacon
   is not built for RISC-V in mainline), and with it a Linux driver for
@@ -330,3 +265,75 @@ UART (`tools/kload.py`), and a card it cannot boot from it describes.
 - An X server driver for the Zeitlos blitter.
 - kakao64 (RV64GC, Sv39) is no longer one: Debian boots on it
   ([kakao64.md](kakao64.md), [debian.md](debian.md)).
+
+---
+
+## Notes on the cache
+
+Numbers, in simulation with a memory that answers as the DDR3
+controller does (a new block after 10 cycles, each further word of it
+after 2), for the Linux boot to a shell and five commands, about 250
+million instructions:
+
+| | cycles | per instruction |
+|---|---|---|
+| the CPU on an ideal memory (before FAST_XLATE) | 552,108,354 | 2.21 |
+| Zeitlos's cache, 32 KB, stores written through | 1,635,594,379 | 6.57 |
+| k_cache 16 + 16 KB | 1,256,831,423 | 4.99 |
+| the same, the CPU with FAST_XLATE (from here on) | 1,167,668,906 | 4.61 |
+| k_cache 64 + 16 KB | 976,824,502 | 3.87 |
+| k_cache 64 + 32 KB | 949,939,059 | 3.73 |
+
+(Before FAST_XLATE: 32 + 32 KB 4.43, 64 + 16 KB 4.26, 64 + 64 KB 3.99.)
+
+Where the time goes with 16 + 16 KB: of 24.9 million line fills, 18.4
+million are for instructions (5.9% of fetches miss), and a fill is
+about 18 cycles of memory: 10 for the block and 2 for each further
+word, a word at a time over the bus. Three of four fetches that miss
+are of the line after the last one that missed: code run for the first
+time, straight on. So:
+
+- The instruction cache is where size pays, on boards with block RAM
+  to spare (the Sergei ML2 build takes `I_KB`, `D_KB`).
+- Fetching the next line ahead was built and works, and is on the
+  branch `kakao32-prefetch`, not here: it turns 13.8 million misses
+  into waits of 12.6 cycles on average, because the CPU is through a
+  line long before the next one has arrived, and the boot gains 2%.
+- What would help both is a line arriving sooner: the DDR3 controller
+  handing over its 16-byte block at once (it has it in a register)
+  would make a fill 11 cycles instead of 18; two blocks from one
+  ACTIVATE would make 32-byte lines worth having.
+- A fetch or load that misses is answered when its word arrives, not
+  when the line is complete; that gains under 1%.
+- The CPU's static branch prediction (`BTFN`) gains 0.7% here.
+
+A request's registers are loaded whenever a request could be taken,
+without waiting to know that the one before it hit: a fetch or load
+that misses is put back and looked up again, two cycles on a miss.
+That, and what else kakao64 needed between it and the cache (a port
+that turns a doubleword into two accesses and holds two requests), is
+in [kakao64.md](kakao64.md), "Timing"; kakao64's numbers are there
+too.
+
+### The cache and the clock
+
+The SOC's longest path starts in the instruction cache's tag memory: a
+block RAM's output is there 5.6 ns after the clock, the comparison
+with the address follows, and its result decides in the same cycle
+what the CPU does next. What was done about it:
+
+- The tags are compared on the carry chain, not in a tree of LUTs.
+- The answer to the CPU (`c_ack`, `c_rdy`) has one comparison for both
+  caches: each of its bits takes the instruction cache's tag or the
+  data cache's, as the request is a fetch or not. The caches' own two
+  comparisons are still there for what is not in a hurry (a store into
+  the cache, the miss).
+- What decides nothing in that cycle does not wait for it: the bus's
+  address and data registers load with every request.
+- In the CPU the answer passes one LUT before the registers it enables
+  (`docs/kakao32.md`).
+
+The I/O processor had the next longest: its memory's and the text
+mode's block RAM outputs went straight into picorv32's instruction
+decoding. What it reads goes through a register now, and each of its
+accesses takes a cycle more.

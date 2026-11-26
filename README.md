@@ -9,6 +9,8 @@ Kakao is a set of RISC-V operating systems for Machdyne FPGA computers: each is 
 | **Kakao Plan 9** | rv64 | Plan 9 from Bell Labs (the 9k kernel): a CPU server for a Plan 9 network, and rio on the monitor. Built on Linux from this repository. [plan9/README.md](plan9/README.md) |
 | **Kakao NetBSD** | rv64 | Planned. |
 
+Sister projects: [Zeitlos](https://github.com/machdyne/zeitlos), [Mach86](https://github.com/machdyne/mach86), [MachBoot](https://github.com/machdyne/machboot)
+
 ## The Kakao SOC
 
 The hardware all of them are for is in [soc/](soc/README.md): how to use a release, how to build it, and how it works. To software it looks like QEMU's RISC-V `virt` machine (CLINT, PLIC, 16550 consoles, virtio disk and network), so a system that runs there needs little or nothing changed to run here.

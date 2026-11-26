@@ -9,6 +9,7 @@ unpatched.
 |---|---|---|
 | **Kakao Linux (Buildroot)** | kakao32: RV32IMA, Sv32 | all |
 | **Kakao Linux (Debian)**: Debian 13, its own packages | kakao64: RV64IMAC, Sv39, F and D with the firmware's help | those with 512 MB and a 45F: Sergei ML2, Mozart ML2 |
+| **Kakao Plan 9**: a CPU server, and rio ([../plan9](../plan9/README.md)) | kakao64 | the same |
 
 It is a second hardware option for Kakao beside the LiteX VexRiscv SOC,
 which stays supported.
@@ -25,6 +26,13 @@ which stays supported.
   Ethernet `eth0`, as virtio devices, as on QEMU.
 - **Booting from the SD card**: a FAT partition with OpenSBI, the
   kernel, a device tree and a list of what to load.
+- **For a system that draws**, two build options (`INPUT=1 FB=1`, off
+  unless asked for): a framebuffer in main memory, 640 by 480 in 16
+  bits a pixel or 8, and the USB keyboard and mouse as the system's
+  own virtio input devices. Super with 0 puts the framebuffer on the
+  screen and gives it the keys. Plan 9's rio runs on it.
+- **Several systems on a card**: `/sys/boot.txt` names the directory
+  of `/sys` to boot from.
 - **A serial console** at 1 Mbaud on the Sergei and Mozart boards, and
   as a USB serial port on Lakritz, Konfekt and Klinge.
 
@@ -32,6 +40,7 @@ The keys that are the terminal's own:
 
 ```
 Super with 1 to 9            that terminal
+Super with 0                 the framebuffer (INPUT=1 FB=1)
 Super with Left or Right     the terminal before, the next
 Super with Up, Down,         the first terminal's scroll buffer
   Page Up, Page Down
@@ -106,6 +115,8 @@ make -C soc/sim ddr3                  the SOC on the DDR3 controller
 make -C soc/sim sdram                 the SOC on the SDRAM controller
 make -C soc/sim rom                   the PLIC and the UART's interrupts
 make -C soc/sim usb                   a USB keyboard, on a port and behind a hub, and a mouse
+make -C soc/sim input                 the keyboard and the mouse as virtio input devices (INPUT=1)
+make -C soc/sim ddr3fb                the DDR3 controller's port for the framebuffer (FB=1)
 ```
 
 [sim/README.md](sim/README.md) has Linux booting under Verilator, on
@@ -121,7 +132,9 @@ soc/
                      way to it), k_clint, k_plic, k_uart, k_vcon (the
                      terminals' consoles), k_virtio (the disk's and the
                      network's registers); k_text (the text mode) and
-                     k_iop (the I/O processor); tests/
+                     k_iop (the I/O processor); k_fb (the framebuffer's
+                     scan-out) and mem/ (the DDR3 controller with a
+                     port for it); tests/
   fw/kboot/          the boot ROM: DDR3 training, SD boot, a loader on the UART
   fw/iop/            the I/O processor's program: the terminals, the USB
                      keyboard and mouse, the menus, the disk, the network
@@ -153,7 +166,7 @@ pin is moved.
 
 ## Status
 
-Both systems run on the **Sergei ML2**. No other board has been tried
+All three systems run on the **Sergei ML2**. No other board has been tried
 yet; all are built and meet timing.
 
 | | on a board | in simulation |
@@ -165,6 +178,8 @@ yet; all are built and meet timing.
 | the network | Sergei ML2, with both CPUs | yes |
 | reset (`reboot`, the menu) | Sergei ML2 | yes |
 | Debian 13 on kakao64, with systemd and with a busybox as init | Sergei ML2 | with the busybox; systemd takes too long to simulate |
+| Plan 9 on kakao64: its shell from the SD card | Sergei ML2 | yes |
+| the framebuffer and the keyboard and mouse as the system's (`INPUT=1 FB=1`), with Plan 9's rio | Sergei ML2 | the framebuffer with rio; the input devices in their own test |
 | the SDRAM boards | no | yes |
 | a board without a monitor (Klinge) | no | yes |
 | the console as a USB serial port (Lakritz, Konfekt, Klinge) | no | its register side only |

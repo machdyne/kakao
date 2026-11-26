@@ -191,6 +191,13 @@ static void key_event(uint8_t usage, int down)
 	   cursor and page keys move through what scrolled off the screen */
 	if (gui_down && usage < 0xe0) {
 		if (!down) return;
+#ifdef INPUT
+		/* 0 is the graphics screen, where the keyboard and the mouse
+		   are the host's (vinput.c); any terminal ends that. (The
+		   tenth terminal, if there is one, is reached with Left.) */
+		if (usage == 0x27) { rep_usage = 0; dead = 0; vinput_show(1); return; }
+		if ((usage >= 0x1e && usage <= 0x26) || usage == 0x50 || usage == 0x4f) vinput_show(0);
+#endif
 		if (usage >= 0x1e && usage <= 0x27) show(usage - 0x1e);
 		else if (usage == 0x50) show(term_shown() - 1);
 		else if (usage == 0x4f) show(term_shown() + 1 == term_count() ? 0 : term_shown() + 1);
@@ -201,6 +208,14 @@ static void key_event(uint8_t usage, int down)
 		else if (usage == 0x4e) term_scroll(-25);
 		else if (usage == 0x06) mouse_copy();		/* C */
 		else if (usage == 0x19) mouse_paste();		/* V */
+		return;
+	}
+
+	/* the graphics screen: the key is the host's, down and up, as it
+	   is; but not while the menus are open, and never Scroll Lock,
+	   which opens them */
+	if (vinput_active() && !hud_active() && usage != U_SCROLL) {
+		vinput_key(usage, down);
 		return;
 	}
 
@@ -256,6 +271,9 @@ static void block(int b)
 	if (((info >> 24) & 3) == Z_USBH_TYP_MOUSE) {
 		uint32_t cu = z_usbh_rd(b ? Z_USBH_HID1_CURSOR : Z_USBH_HID0_CURSOR);
 		blk[b].is_mouse = 1;
+		if (vinput_active() && !hud_active())
+			vinput_mouse((int)((cu & 0x3ff) | ((cu >> 18) & 0x400)), (int)((cu >> 10) & 0x3ff), (int)((cu >> 20) & 0xff));
+		else
 		mouse_at((int)((cu & 0x3ff) | ((cu >> 18) & 0x400)), (int)((cu >> 10) & 0x3ff), (int)((cu >> 20) & 0xff));
 	} else if (blk[b].is_mouse) {
 		blk[b].is_mouse = 0;

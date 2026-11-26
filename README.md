@@ -6,7 +6,7 @@ Kakao is a set of RISC-V operating systems for Machdyne FPGA computers: each is 
 | ------ | --- | - |
 | **Kakao Linux (Buildroot)** | rv32 | A small Linux with timeless applications, running from memory. On the Kakao SOC, and on the LiteX VexRiscv SOC (the rest of this README). |
 | **Kakao Linux (Debian)** | rv64 | Debian 13 (trixie) from Debian's own packages, on the boards with 512 MB of memory. [soc/docs/debian.md](soc/docs/debian.md) |
-| **Kakao Plan 9** | rv64 | In progress. |
+| **Kakao Plan 9** | rv64 | Plan 9 from Bell Labs (the 9k kernel): a CPU server for a Plan 9 network, and rio on the monitor. Built on Linux from this repository. [plan9/README.md](plan9/README.md) |
 | **Kakao NetBSD** | rv64 | Planned. |
 
 ## The Kakao SOC
@@ -14,10 +14,11 @@ Kakao is a set of RISC-V operating systems for Machdyne FPGA computers: each is 
 The hardware all of them are for is in [soc/](soc/README.md): how to use a release, how to build it, and how it works. To software it looks like QEMU's RISC-V `virt` machine (CLINT, PLIC, 16550 consoles, virtio disk and network), so a system that runs there needs little or nothing changed to run here.
 
   - **kakao32**: RV32IMA with M, S and U modes and Sv32. Runs Kakao Linux (Buildroot).
-  - **kakao64**: RV64IMAC with Sv39 and, with the firmware's help, F and D: what Debian's riscv64 port is built for. Runs Kakao Linux (Debian).
+  - **kakao64**: RV64IMAC with Sv39 and, with the firmware's help, F and D: what Debian's riscv64 port is built for. Runs Kakao Linux (Debian) and Kakao Plan 9.
   - An I/O processor beside the CPU is the text terminals on the monitor (with a USB keyboard and mouse) and the virtio devices: the SD card as a disk, Ethernet.
+  - As build options, a framebuffer in main memory (640 by 480) and the keyboard and mouse as the system's own devices: what a window system needs.
 
-It is built for Sergei, Mozart, Lakritz, Konfekt and Klinge ([soc/boards](soc/boards/README.md)). Both systems run on the Sergei ML2; the other boards have not been tried yet.
+It is built for Sergei, Mozart, Lakritz, Konfekt and Klinge ([soc/boards](soc/boards/README.md)). All three systems run on the Sergei ML2; the other boards have not been tried yet.
 
 # Kakao Linux (Buildroot, rv32)
 

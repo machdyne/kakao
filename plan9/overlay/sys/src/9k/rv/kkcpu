@@ -1,0 +1,167 @@
+# 9k risc-v cpu server for the Kakao SOC and for QEMU's virt machine
+dev +dev
+	root
+	cons
+	arch
+	env
+	pipe
+	proc
+	mnt
+	srv
+	dup
+	ssl
+	tls
+	cap
+	kprof
+	segment
+	ether		netif
+	draw		screen
+	mouse		mouse
+	ip		arp chandial ip ipv6 ipaux iproute netlog nullmedium pktmedium
+	uart
+	bridge		log
+
+uart +dev
+	uarti8250
+
+ip +dev
+	tcp
+	udp
+	ipifc
+	icmp
+	icmp6
+
+link +dev
+	ethervirtio
+	kkscreen
+	kkinput
+	ethermedium
+	loopbackmedium
+	netdevmedium
+
+misc +dev
+	cache
+	kkpool
+
+lib
+	libmemlayer
+	libmemdraw
+	libdraw
+
+boot cpu
+	tcp
+
+rootdir
+	bootkk.out		boot
+	kk/kkinit		kkinit
+	kk/kkroot.tar		kkroot.tar
+	/rc/lib/rcmain
+#KKBIN	(the Makefile puts every command of /riscv64/bin here)
+
+conf
+	#include "riscv64.h"
+
+	int cpuserver = 1;
+	uvlong cpuhz = 48*MHZ;
+	uvlong timebase = 10*MHZ;	/* clint ticks per second: QEMU's */
+	Membank membanks[] = {		/* (address, size) pairs */
+		PHYSMEM, BANK0SIZE,
+		0
+	};
+	char defnvram[] = "/boot/nvram";
+
+	uintptr uartregs[] = { PAUart0 };
+	int nuart = nelem(uartregs);
+	vlong uartfreq = 3686400;
+
+	uchar ether0mac[] = { 2, 0x4b, 0x4b, 0, 0, 0 };	/* the last three are made up */
+
+	Soc soc = {
+		.plic	= (char *)0x0c000000,
+
+		.hobbled = 0,		/* one hart, contexts M then S */
+	};
+	Ioconf socconf[] = { /* devices without drivers that vmap their regs */
+		{ "clint", 64*KB, &soc.clint, },
+		{ "uart",  PGSZ, &soc.uart, 10, },
+		{ "plic",  64*MB, &soc.plic, },
+		0
+	};
+	Ioconf ioconfs[] = {	/* devices whose drivers vmap their regs */
+		0
+	};
+
+riscv64
+	start
+	low
+	mach
+	mtrap
+	strap
+	mch
+	main
+	allocb
+	arch
+	archrv
+	kkfdt
+	color
+	csr
+	dmamalloc
+	fp
+	fpu
+	ioconf
+	map
+	memory
+	mmu
+	fakepci
+	fakeptenc
+	sane
+	sbi
+	sbicall
+	sbiecall
+	plic
+	trap
+	fakeucalloc
+port
+	alarm
+	awaitbit
+	byteserial
+	chan
+	ctype
+	dev
+	devtab
+	edf
+	fault
+	image
+	logpow
+	page
+	parse
+	pgrp
+	portclock
+	prf
+	print
+	proc
+	ps
+	qio
+	qlock
+	qmalloc
+	random
+	rebootcmd
+	segment
+	sysauth
+	syscall
+	syscallfmt
+	sysfile
+	sysproc
+	sysseg
+	systab
+	taslock
+	tod
+	watermarks
+
+#
+# controls which directories to look in for source files; must be relative to ..
+#
+dir
+	ip
+	port
+	../9/port

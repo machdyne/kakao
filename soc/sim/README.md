@@ -157,6 +157,31 @@ Debian's base system has been run this way (a 120 MB card made of
 commands as on QEMU and the same output; systemd has not: its boot is
 hours of simulation.
 
+## The framebuffer
+
+With the terminal and `-GFB=1` the simulated SOC has the framebuffer
+(`docs/design.md`): the last 4 MB of its memory, shown from reset, and
+a port for it on the simulation's model of main memory.
+
+```
+make sim64 INPUT=1 SIMC="-DSIMSD -DSIMNET" \
+    SOCG="-GVIRTIO=4 -GRXPIN=1 -GTERMINAL=1 -GFB=1"
+obj/simsoc64 +load=<picture>@8fc00000 +frame=out +max=3000000
+```
+
+`+frame=out` writes the screen as the video signal has it to
+`out-0.ppm`, `out-1.ppm` and so on: the last whole frame before each
+line of a script is typed, one every 250 million cycles after the last
+line, and one at the end. The two lines above show a picture of 640 by
+480 pixels, `r5g6b5`, without a system: the simulation has 256 MB, so
+the framebuffer is at 0x8fc0_0000. A system needs a device tree made
+with `tools/mkdts.py --fb`. `plan9/docs/port.md` has Plan 9 and its
+window system run this way.
+
+`make ddr3fb` tests the DDR3 controller's port for the framebuffer
+against Zeitlos's model of the DRAM, and `make input` the keyboard and
+the mouse as virtio input devices; both with Icarus Verilog.
+
 ---
 
 # Notes

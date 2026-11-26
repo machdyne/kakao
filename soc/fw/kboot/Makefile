@@ -83,6 +83,18 @@ hosttest: hosttest.c sdboot.c
 	@cp $(T)/fat32-1.img $(T)/both.img && printf '{ "y": "0x80200000" }\n' > $(T)/boot64.json && \
 		MTOOLS_SKIP_CHECK=1 mcopy -i $(T)/both.img@@1M $(T)/boot64.json ::/sys/linux/ && \
 		$(T)/hosttest $(T)/both.img boot64.json | grep -q "^found: boot64.json, 22 bytes" && echo "boot64.json: ok"
+	@# /sys/boot.txt names another directory of /sys: its boot.json is the
+	@# one found (23 bytes, not linux's 22), and one that is not there is said
+	@cp $(T)/fat32-1.img $(T)/plan9.img && printf '{ "9k": "0x80200000" }\n' > $(T)/boot9.json && \
+		printf 'plan9\n' > $(T)/boot.txt && \
+		MTOOLS_SKIP_CHECK=1 mmd -i $(T)/plan9.img@@1M ::/sys/plan9 && \
+		MTOOLS_SKIP_CHECK=1 mcopy -i $(T)/plan9.img@@1M $(T)/boot9.json ::/sys/plan9/boot.json && \
+		MTOOLS_SKIP_CHECK=1 mcopy -i $(T)/plan9.img@@1M $(T)/boot.txt ::/sys/boot.txt && \
+		$(T)/hosttest $(T)/plan9.img | grep -q "^found: boot.json, 23 bytes" && \
+		$(T)/hosttest $(T)/plan9.img /sys/linux/boot.json | grep -q "^found: /sys/linux/boot.json, 22 bytes" && \
+		cp $(T)/fat32-1.img $(T)/nosuch.img && printf 'inferno' > $(T)/boot.txt && \
+		MTOOLS_SKIP_CHECK=1 mcopy -i $(T)/nosuch.img@@1M $(T)/boot.txt ::/sys/boot.txt && \
+		$(T)/hosttest $(T)/nosuch.img | grep -q "no /sys/inferno. In /sys:" && echo "boot.txt: ok"
 	@for i in nolinux nojson ext; do echo "-- $$i:"; ! $(T)/hosttest $(T)/$$i.img || { echo "hosttest: $$i was booted from"; exit 1; }; done
 	@$(T)/hosttest $(T)/nolinux.img | grep -q "no /sys/linux. In /sys:" && \
 		$(T)/hosttest $(T)/nojson.img | grep -q "in /sys/linux:.* BOOT.JSN" && \

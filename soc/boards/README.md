@@ -50,6 +50,8 @@ Options, on the command line:
 | `USB=0`, `VIRTIO=0` | no USB; no disk and no network | |
 | `LAYOUTS="us gb de fr"` | the keyboard layouts built in, by Zeitlos's names | `us gb de de-nodeadkeys` |
 | `KCACHE=0` | Zeitlos's cache instead of `k_cache` | |
+| `INPUT=1` | the USB keyboard and mouse are virtio input devices too, the host's with Super and 0 | off |
+| `FB=1` | a framebuffer in the last 4 MB of main memory, 640 by 480, on the screen with Super and 0 (`docs/design.md`, "The framebuffer"); for `INPUT=1` | off; DDR3 boards |
 
 ## The SD card: Kakao Linux (Buildroot), kakao32
 
@@ -140,6 +142,28 @@ can hold both systems, and the bitstream that is loaded chooses:
 
 The names in a list are free; only two files cannot have one name.
 
+## One card for more than one system
+
+`/sys/linux` is where kboot looks unless the card says otherwise: a
+file `/sys/boot.txt`, whose first word is another directory of `/sys`.
+With `plan9` in it kboot reads `/sys/plan9/boot.json` (or
+`boot64.json`), and the names in that list are files of `/sys/plan9`.
+A list can name another directory's file by its path, so what two
+systems share is on the card once:
+
+```
+/sys/boot.txt              plan9
+/sys/plan9/boot.json       { "/sys/linux/fw_jump.bin": "0x80000000",
+                             "9kkcpu.bin": "0x80200000",
+                             "/sys/linux/kakao.dtb": "0x87f00000" }
+/sys/plan9/9kkcpu.bin
+/sys/linux/...             as before
+```
+
+To boot the other system, change the word (or remove the file: Linux).
+The word is at most fifteen letters. kboot is in the bitstream, so this
+needs a bitstream built since it was added.
+
 ## Writing a card, and a card that does not boot
 
 ```
@@ -153,8 +177,7 @@ after that, what it held before.
 When kboot cannot boot from a card it says what it found there (on the
 DDR3 boards): the first partition's type and place when there is no
 FAT, and otherwise the FAT's place and cluster size, how far towards
-`/sys/linux/boot.json` it got and the names in the directory it stopped
-in. `make -C ../fw/kboot hosttest` builds the same code for the PC, and
+`boot.json` it got and the names in the directory it stopped in. `make -C ../fw/kboot hosttest` builds the same code for the PC, and
 `../fw/kboot/build/hosttest/hosttest <image or /dev/sdX>` runs it on a
 card of your own.
 

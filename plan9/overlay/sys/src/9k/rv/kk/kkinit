@@ -1,0 +1,48 @@
+#!/boot/rc
+# kkinit - run by boot: the root file system out of the kernel into a
+# ramfs, the name space a CPU server has, and a shell on the console.
+# The ramfs is /srv/boot, where /lib/namespace looks for the root.
+#
+# The commands stay where they are, in the kernel (/boot), and are bound
+# into /bin: copying them into the ramfs took the simulated SOC longer
+# than anyone waited.  The ones with a directory to their name
+# (auth/factotum) are bound one by one over empty files of the root
+# (/lib/namespace.kkbin, written by the Makefile).
+
+/boot/ramfs -S boot
+/boot/mount -c /srv/boot /root
+cd /root
+/boot/tar xf /boot/kkroot.tar
+if(! /boot/ls /root/lib/namespace >/dev/null >[2=1]){
+	echo kkinit: no root file system: a shell on /boot alone
+	exec /boot/rc -m /boot/rcmain -i
+}
+
+# as /lib/namespace has it
+/boot/bind -a /root /
+/boot/bind -c /root/mnt /mnt
+/boot/bind /riscv64/bin /bin
+/boot/bind -a /rc/bin /bin
+/boot/bind -a /boot /bin
+. /lib/namespace.kkbin
+bind -a '#¤' /dev >[2]/dev/null
+bind -a '#i' /dev >[2]/dev/null
+bind -a '#m' /dev >[2]/dev/null
+bind -a '#l0' /net >[2]/dev/null
+bind -a '#I' /net
+
+cputype=riscv64
+objtype=riscv64
+user=glenda
+home=/usr/glenda
+service=cpu
+sysname=kakao
+rootdir=/root
+echo -n $sysname >/dev/sysname
+bind -c $home/tmp /tmp
+cd $home
+
+echo
+echo 'Kakao Plan 9: a shell.  kknet starts the network, kkcpu a CPU server.'
+prompt=('% ' '	')
+exec /bin/rc -i

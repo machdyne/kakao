@@ -1,0 +1,39 @@
+--- a/sys/src/9k/port/devcons.c
++++ b/sys/src/9k/port/devcons.c
+@@ -718,8 +718,19 @@
+ 
+ 	if(kbdq != nil)
+ 		qproduce(kbdq, buf, n);
++#ifdef KKCONSKEYS
++	/* an erase rubs the character out on a terminal, too */
++	if(kbd.raw == 0)
++		for(p = buf; p < e; p++){
++			if(*p == '\b')
++				putstrn("\b \b", 3);
++			else
++				putstrn(p, 1);
++		}
++#else
+ 	if(kbd.raw == 0)
+ 		putstrn(buf, n);
++#endif
+ }
+ 
+ /*
+@@ -735,6 +746,16 @@
+ 	ilock(&kbd.lockputc);		/* just a mutex */
+ 	if(ch == '\r' && !kbd.raw)
+ 		ch = '\n';
++#ifdef KKCONSKEYS
++	/*
++	 * A terminal made for Unix sends DEL for Backspace and ^C to
++	 * interrupt; Plan 9 has ^H to erase and DEL to interrupt.
++	 */
++	if(ch == 0x7f)
++		ch = '\b';
++	else if(ch == 0x03)
++		ch = 0x7f;
++#endif
+ 	next = kbd.iw+1;
+ 	if(next >= kbd.ie)
+ 		next = kbd.istage;

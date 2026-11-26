@@ -22,6 +22,7 @@ the SOC has.
 | 0x0200_0000 | 64 KB | CLINT: msip, mtimecmp, mtime | `sifive,clint0` | | yes |
 | 0x0300_0100 | 256 B | the cache's registers | (firmware only) | | yes (not in QEMU's map) |
 | 0x0300_0700 | 16 B | main memory's registers (DDR3 training) | (firmware only) | | yes (not in QEMU's map) |
+| 0x0300_1000 | 4 KB | the framebuffer's registers: depth, and 256 colours | `kakao,ctrl` of the framebuffer's node | | with `FB=1` (not in QEMU's map) |
 | 0x0c00_0000 | 6 MB | PLIC | `sifive,plic-1.0.0` | | yes, 16 sources |
 | 0x1000_0000 | 256 B | UART 0: console 0, the serial port and the first terminal | `ns16550` | 10 | yes |
 | 0x1000_0100 .. 0x1000_0900 | 256 B each | consoles 1..9: the other terminals | `ns16550` | 1..9 | yes, as many as the board has terminals (not in QEMU's map) |
@@ -30,11 +31,13 @@ the SOC has.
 | 0x2000_0000 | | flash | `cfi-flash` | | no |
 | 0x3000_0000 | | PCI | `pci-host-ecam-generic` | | no |
 | 0x8000_0000 | 32 MB .. 512 MB | main memory | | | SDRAM or DDR3 |
+| the last 4 MB of main memory | 4 MB | the framebuffer, 640 by 480 | `simple-framebuffer` | | with `FB=1`: not the system's memory then |
 
 The consoles after the first are the SOC's addition; they are
 described in the board's device tree (`tools/mkdts.py`) and use a
-mainline driver (`ns16550`). There is no framebuffer: the picture is
-the text mode's, which Linux does not see.
+mainline driver (`ns16550`). The picture is the text mode's, which the
+host does not see; a build with `FB=1` has a framebuffer besides ("The
+framebuffer", below).
 
 ## Who implements what
 
@@ -47,9 +50,9 @@ the text mode's, which Linux does not see.
   - the terminals: each console's output is drawn into the text mode,
     and takes its keys from the USB keyboard;
   - the virtio back ends: block (the SD card) and net (the RMII
-    Ethernet). Thought of and not built: USB sticks, SPI and USB
-    Ethernet, WiFi, the keyboard and mouse as devices Linux sees, a
-    random number device;
+    Ethernet), and with `INPUT` the keyboard and the mouse (input).
+    Thought of and not built: USB sticks, SPI and USB Ethernet, WiFi,
+    a random number device;
   - the USB host stack: the I/O processor owns the USB ports, Linux
     does not see the controller;
   - the menus, on a key, over the text screen.
@@ -164,11 +167,135 @@ Up or Down moves the picture a row, with Page Up or Page Down 25; a key
 typed returns to the screen. The mouse's pointer is shown while the
 mouse moves and for two seconds after.
 
+### The keyboard and the mouse as the host's own devices
+
+Built with `INPUT=1` (`boards/Makefile`; off unless asked for), the
+keyboard and the mouse are also two virtio input devices, in the third
+and fourth virtio slots (`fw/iop/vinput.c`): what Linux's
+`virtio_input` driver and Plan 9's `kkinput.c` take. They are for a
+host that draws its own picture: with the framebuffer (`FB=1`, below)
+they are what a window system needs.
+
+Which of the two the keys and the mouse are is chosen at the keyboard.
+Super with 0 is the graphics screen: from then on a key is an event of
+the host's keyboard, down and up, with Linux's key code and no
+repeats (the host makes its own), and the mouse is the host's pointer;
+with `FB=1` the framebuffer is on the screen from then on.
+Super with another digit, or with Left or Right, is a terminal again,
+and what the host thought was held down is let go. (With ten terminals
+the tenth is reached with Super and Left; Super with 0 is no longer
+it.) The Super keys and Scroll Lock never reach the host, and the
+menus open over the graphics screen as over a terminal and take the
+keys while they are open.
+
+The pointer is a place, not a movement: the USB controller keeps the
+pointer's place itself, in pixels of the picture, so the host's device
+is one with absolute axes, X from 0 to 639 and Y to 479, and the three
+buttons. The keyboard's Num, Caps and Scroll Lock lights are the
+host's to set while it has the keyboard.
+
+A virtio input device's configuration is asked rather than read: the
+driver writes what it wants to know and reads the answer. So a slot's
+configuration can now be written (`virtio.c`: `cfg_read`,
+`cfg_write`), with the byte lanes the host used, which `k_virtio.v`
+already passed on.
+
+It costs the I/O processor 1.7 KB of program and 0.3 KB of data, which
+its 44 KB do not have to spare on the Sergei ML2 with kakao64 (and
+there is no block RAM left there to make them more). So a build with
+`INPUT=1` takes them from two places: the queue of characters typed
+ahead for the hosts is 128 long, not 256, and the terminal's clipboard
+holds 2112 bytes, 26 full lines, not a whole screen. What must be left
+over is the stack, 1024 bytes of it (`fw/iop/link.ld`): it has been
+seen 656 deep, finding USB devices and drawing "About this machine",
+and when there were 512 it went into the data below it, the queue of
+typed characters first, and the host was sent keys nobody had pressed.
+`make input` watches how deep it goes. A build that still does not fit
+can leave a keyboard layout out (`LAYOUTS=`), half a kilobyte each.
+
+On the Sergei ML2 with kakao64 the two more virtio slots are about 120
+more logic cells placed (29,272 against 29,150). One place-and-route of
+each with the same seed, on an older nextpnr (0.6) than the boards are
+built with, gave 45.0 MHz with `INPUT=1` and 46.9 MHz without: both
+short of 48 MHz there, where the release's tools reach 49.6, so the
+difference says little more than that this build has no slack to give
+and wants its seeds tried (`make seeds`).
+
+`make input` in `soc/sim` (`tb_iop_input.v`) is its test: the I/O
+processor with Zeitlos's models of a USB keyboard and mouse, the virtio
+slots, and a driver's side of them written out in the testbench.
+
+### The framebuffer
+
+Built with `FB=1` (`boards/Makefile`; off unless asked for; DDR3 boards
+with the terminal and `k_cache`), the last 4 MB of main memory are a
+framebuffer: 640 by 480 pixels from their first byte, a line after the
+other, shown where a terminal would be when Super with 0 is pressed
+(`INPUT=1`, above, goes with it: the keys and the mouse are the host's
+on that screen). The device tree has it as a `simple-framebuffer` in
+`r5g6b5`, and has that much less memory for the system.
+
+- **Two depths.** 16 bits a pixel, `r5g6b5`, is how it starts, and what
+  a `simple-framebuffer` driver finds. Bit 0 of the word at 0x0300_1000
+  makes it 8 bits a pixel through 256 colours, which are the words from
+  0x0300_1400 on (0x00rrggbb, write only): half the bytes to draw and
+  to read out, and what Plan 9 uses. A line is 640 pixels either way,
+  so 1280 or 640 bytes. Bits 31..16 of the same word count the blocks
+  that came too late for the picture, which should stay 0.
+- **Reading it out** (`rtl/k_fb.v`). The picture's blocks of 16 bytes
+  are read from main memory as the screen is drawn, ahead of it, into
+  a queue of eight between the SOC's clock and the pixel clock (in
+  distributed RAM, as the colours are: the Sergei ML2 with kakao64 has
+  no block RAM left). The frame's first block is asked for when the
+  last line has been drawn, so the queue is full when the next frame
+  begins. Nothing is read while a terminal is shown.
+- **The memory's second port.** The scan-out does not go through the
+  bus: main memory has a port for it (`fb_*`), on which a whole block
+  is read at once and which is served before the bus. The DDR3
+  controller with that port is the SOC's own copy of Zeitlos's
+  (`rtl/mem/k_ddr3.v`, `k_ddr3_ctrl.v`; the PHY and the clocks are
+  still Zeitlos's files), used by builds with `FB=1` only: every other
+  build has Zeitlos's controller as before. A block read for the
+  screen does not touch the controller's block register, so the bus's
+  stores still combine, and what the register holds unwritten is on the
+  screen when it is written, 8 idle cycles later at the most.
+- **The cache out of the way** (`rtl/k_cache.v`: `FB`, `FB_AT`). What a
+  write-back cache holds the screen does not show, so the 4 MB are not
+  cached: an access to them is one of the memory's own, as a device's
+  is. That makes the framebuffer slow to write and slower to read, and
+  a host that draws a lot does better drawing in ordinary memory and
+  writing what has changed, whole words and in order, which the
+  controller's write combining turns into one write a block. Plan 9
+  does (`plan9/docs/port.md`).
+- **The text mode's part** (`rtl/k_text.v`). A register, GRAPHICS
+  (0x20020 of the text mode's, the I/O processor's to write), puts the
+  framebuffer's pixels where the terminal's would be, from a frame's
+  beginning. The menus and the notes still open over it.
+
+**What it costs.** At 640 by 480 and 16 bits the screen reads 80 blocks
+a line, 38,400 a frame, each an ACTIVATE and a READ of its own: 13 of
+the controller's cycles (10 to the data, and the row's closing), of
+the 19 there are for a block while a line is drawn. So for as long as
+the framebuffer is shown the memory is the screen's for about two
+thirds of the time and the CPU's for the rest (8 bits a pixel: one
+third); how much slower that makes a program depends on how
+often it misses the caches. Reading a row's blocks in one burst, the
+row left open, would cut that to a fraction, and is what a larger
+picture needs first: 1024 by 768 at 16 bits does not fit as it is. The
+size is `k_fb.v`'s parameters and the text mode's timing; 4 MB are room
+for 1280 by 1024 at 16 bits.
+
+`make ddr3fb` in `soc/sim` (`tb_ddr3_fb.v`) tests the controller's port
+against Zeitlos's model of the DRAM, which checks the protocol's
+timing: blocks read at the screen's rate while the bus reads and
+writes, in the same rows and others. The simulated SOC has the port in
+its model of main memory (`sim_soc.v`, `-GFB=1`), shows the
+framebuffer from reset, and writes the picture to a file (`+frame=`).
+
 Not there yet: the settings kept over a power cycle, choosing what the
 machine boots from the menus, a console faster than a UART for the
 first terminal (the terminal draws about 60,000 characters a second;
-UART 0 at 1 Mbaud gives it 100,000 at most), the mouse as a device
-Linux sees.
+UART 0 at 1 Mbaud gives it 100,000 at most).
 
 ## The disk and the network
 

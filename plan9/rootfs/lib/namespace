@@ -1,0 +1,32 @@
+# The name space a user gets on Kakao Plan 9: the system's own
+# /lib/namespace without what this machine has not got.
+
+# root
+mount -aC #s/boot /root $rootspec
+bind -a $rootdir /
+bind -c $rootdir/mnt /mnt
+
+# kernel devices
+bind #c /dev
+bind #d /fd
+bind -c #e /env
+bind #p /proc
+bind -c #s /srv
+bind -a #¤ /dev
+
+# authentication
+mount -a /srv/factotum /mnt
+
+# standard bin; the commands themselves are in the kernel (/boot)
+bind /$cputype/bin /bin
+bind -a /rc/bin /bin
+bind -a /boot /bin
+. /lib/namespace.kkbin
+
+# networks
+bind -a #l /net
+bind -a #I /net
+mount -a /srv/cs /net
+
+bind -c /usr/$user/tmp /tmp
+cd /usr/$user

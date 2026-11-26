@@ -1,0 +1,11 @@
+#!/bin/rc
+# kkexport [directory] - serve a directory (the user's own, without an
+# argument) over 9P on TCP port 564 to anyone who asks, without
+# authentication: for looking at a machine from one that is not in a
+# Plan 9 network, say with plan9port's 9p -a 'tcp!address!564' ls.
+# After kknet.
+dir=$home
+if(~ $#* 1)
+	dir=$1
+aux/listen1 -t 'tcp!*!564' /bin/exportfs -r $dir &
+echo $dir is served on port 564, to anyone

@@ -21,7 +21,15 @@
  * either CPU, each from the files its own list names (they need other
  * names where both lists would say Image or fw_jump.bin).
  *
- * A name is a file in /sys/linux, or with a slash in front a path
+ * /sys/linux is where a card's files are unless the card says
+ * otherwise: /sys/boot.txt, if it is there, names another directory of
+ * /sys in its first word ("plan9": then /sys/plan9/boot.json is read,
+ * and the names in it are files of /sys/plan9). So a card can hold more
+ * than one system, each in its own directory, and which one starts is
+ * one word in a file; a list can still name another's file by its path
+ * ("/sys/linux/fw_jump.bin").
+ *
+ * A name is a file in that directory, or with a slash in front a path
  * from the card's root: so a card that also boots the LiteX SOC keeps
  * one Image and one rootfs.cpio in its root, beside LiteX's own
  * /boot.json, and the rest of ours stays out of the way. Then the
@@ -286,14 +294,18 @@ static int fat_find(uint32_t dir, const char *name, int n, uint32_t *clu, uint32
 	}
 }
 
-/* a path from the root, or a name in /sys/linux */
+/* the directory of /sys the card's files are in (/sys/boot.txt) */
+static char os_dir[16] = "linux";
+static uint8_t os_len = 5;
+
+/* a path from the root, or a name in that directory */
 static int fat_open(const char *path, int n, uint32_t *clu, uint32_t *size) {
 	uint32_t dir = 0;
 	int i;
 	if (n && path[0] == '/') { path++; n--; }
 	else {
 		if (!fat_find(0, "sys", 3, &dir, size)) return 0;
-		if (!fat_find(dir, "linux", 5, &dir, size)) return 0;
+		if (!fat_find(dir, os_dir, os_len, &dir, size)) return 0;
 	}
 	for (;;) {
 		for (i = 0; i < n && path[i] != '/'; i++) ;
@@ -319,6 +331,18 @@ static int fat_load(uint32_t clu, uint32_t size, uint32_t *to) {
 
 static uint32_t js[128];
 
+/* which system: the first word of /sys/boot.txt, if the card has one */
+static void os_choose(void) {
+	uint32_t clu, size;
+	int n;
+	if (fat_open("/sys/boot.txt", 13, &clu, &size) && sd_read(v_data + (clu - 2) * v_spc, js)) {
+		for (n = 0; n < 15 && n < (int)size && ((const char *)js)[n] > ' '; n++)
+			os_dir[n] = ((const char *)js)[n];
+		os_dir[n] = 0;
+		os_len = (uint8_t)n;
+	}
+}
+
 static int sd_boot(void) {
 	uint32_t clu, size, dtb = DTB_ADDR, adr, entry = MEM_MAIN;
 	const char *p, *name, *end;
@@ -332,20 +356,24 @@ static int sd_boot(void) {
 #endif
 		return 0;
 	}
+	os_choose();
 #if __riscv_xlen == 64 || defined(SD_BOOT64)
 	if (fat_open("boot64.json", 11, &clu, &size)) print("sd: boot64.json\n");
 	else
 #endif
 	if (!fat_open("boot.json", 9, &clu, &size)) {
-		print("sd: no /sys/linux/boot.json\n");
-#ifdef SD_SAYS
+#ifndef SD_SAYS
+		print("sd: no boot.json\n");		/* (8 KB of boot memory: no room to say where) */
+#else
+		print("sd: no boot.json in /sys/"); print(os_dir); print("\n");
 		/* how far it got, and what is there instead */
 		{
 			uint32_t d1 = 0, d2 = 0;
 			int a = fat_find(0, "sys", 3, &d1, &size);
-			int b = a && fat_find(d1, "linux", 5, &d2, &size);
+			int b = a && fat_find(d1, os_dir, os_len, &d2, &size);
 			say_fs();
-			print(!a ? "sd: no /sys. In /:" : !b ? "sd: no /sys/linux. In /sys:" : "sd: in /sys/linux:");
+			if (!a) print("sd: no /sys. In /:");
+			else { print(b ? "sd: in /sys/" : "sd: no /sys/"); print(os_dir); print(b ? ":" : ". In /sys:"); }
 			f_list = 1;
 			fat_find(!a ? 0 : !b ? d1 : d2, "", 0, &clu, &size);
 			f_list = 0;

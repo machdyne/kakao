@@ -31,6 +31,20 @@ void mouse_pump(void);					/* what is being pasted, on its way */
 extern uint8_t mouse_sel_on;
 int host_room(void);					/* main.c: the queue to the hosts takes another */
 
+/* vinput.c (INPUT): the keyboard and mouse as the host's own devices,
+   while the graphics screen is chosen */
+#ifdef INPUT
+int vinput_active(void);
+int vinput_key(unsigned usage, int down);	/* 1: the host's, not to be typed */
+void vinput_mouse(int x, int y, int buttons);
+void vinput_show(int on);				/* the graphics screen, or a terminal again */
+#else
+#define vinput_active() 0
+#define vinput_key(usage, down) 0
+#define vinput_mouse(x, y, buttons) ((void)0)
+#define vinput_show(on) ((void)0)
+#endif
+
 /* hud.c: the menus, on the text mode's overlay */
 void hud_init(void);
 void hud_toggle(void);

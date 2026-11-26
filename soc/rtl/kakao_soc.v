@@ -24,11 +24,24 @@
  *   0xf000_1000   UART 0 again, through a LiteX UART's registers (with
  *                 LITEUART): the prebuilt Kakao kernel has no other
  *                 console driver
+ *   0x0300_1000   with FB, the framebuffer's registers: word 0 bit 0 is
+ *                 8 bits a pixel (16 without it), bits 31..16 the blocks
+ *                 that came too late for the screen, counted; from
+ *                 0x0300_1400 the 256 colours of the 8 bit picture, a
+ *                 word each, 0x00rrggbb (write only)
  *   0x8000_0000   main memory, up to 512 MB
  *   anything else the board's own devices (ext_*)
  *
  * With TERMINAL, the I/O processor and the text mode (k_iop.v,
  * k_text.v): the terminal, on UART 0's characters.
+ *
+ * With FB (and TERMINAL, and KCACHE), a framebuffer: 4 MB of main
+ * memory, the ones whose address bits 28..22 are FB_AT, are not cached
+ * (k_cache.v), and 640 by 480 pixels from their beginning are read out
+ * as the screen is drawn (k_fb.v) and shown where a terminal would be
+ * when the I/O processor says so (k_text.v's GRAPHICS). The memory
+ * behind mem_* then has a second port, fb_*, on which a whole block of
+ * 16 bytes is read at once, and which it answers before mem_*.
  *
  *   0x1000_1000   the virtio slots, VIRTIO of them, 4 KB each (k_virtio.v;
  *                 with TERMINAL: the I/O processor is the devices):
@@ -67,6 +80,9 @@ module kakao_soc #(
 	parameter VIRTIO    = 0,		// with KCACHE: virtio slots, 0..4. Without TERMINAL the
 								// I/O processor is there for them alone (IOP_HEX is then
 								// fw/iop's iop-headless.hex, and IOP_WORDS its size)
+	parameter FB        = 0,		// 1: with TERMINAL and KCACHE, a framebuffer in main memory
+	parameter [6:0] FB_AT = 7'h7f,	// ...its 4 MB: address bits 28..22 (0x7f: the top of 512 MB)
+	parameter FB_SHOW   = 0,		// ...shown from reset (a simulation without a keyboard)
 	parameter USB_T_MS  = 48000,	// clock cycles a millisecond (the USB core needs 48 MHz)
 	parameter FONT_HEX  = "k_font.hex"
 ) (
@@ -81,6 +97,13 @@ module kakao_soc #(
 	output  [3:0] mem_sel_o,
 	output        mem_stb_o,
 	input         mem_ack_i,
+
+	// main memory's second port (FB): a block of 16 bytes read at once,
+	// the lowest address in the lowest bits; fb_stb is held until fb_ack
+	output        fb_stb_o,
+	output [24:0] fb_adr_o,
+	input         fb_ack_i,
+	input [127:0] fb_dat_i,
 
 	// main memory's registers
 	output  [1:0] reg_adr_o,
@@ -232,7 +255,8 @@ module kakao_soc #(
 		// Kakao's own, with the CPU's addresses as they are
 		wire [31:0] a;
 		k_cache #(
-			.I_KB(I_KB), .D_KB(D_KB)
+			.I_KB(I_KB), .D_KB(D_KB),
+			.FB(FB), .FB_AT(FB_AT)
 		) cache_i (
 			.clk(clk), .rst(rst),
 			.c_req(c_req), .c_adr(c_adr), .c_we(c_we), .c_sel(c_sel),
@@ -304,7 +328,8 @@ module kakao_soc #(
 	wire s_lxu   = LITEUART && (m_adr[31:8] == 24'hf00010);
 	wire s_vcon  = (TERMINAL != 0) && (TERMS > 1) && (m_adr[31:12] == 20'h10000) && (m_adr[11:8] != 4'd0);
 	wire s_virt  = (VIRTIO != 0) && (m_adr[31:16] == 16'h1000) && (m_adr[15:12] != 4'd0);
-	wire s_ext   = !(s_mem || s_rom || s_test || s_clint || s_mreg || s_uart0 || s_vcon || s_lxu || s_plic || s_virt);
+	wire s_fbr   = (FB != 0) && (m_adr[31:12] == 20'h03001);
+	wire s_ext   = !(s_mem || s_rom || s_test || s_clint || s_mreg || s_uart0 || s_vcon || s_lxu || s_plic || s_virt || s_fbr);
 
 	wire stb = m_stb && m_cyc;
 
@@ -354,6 +379,18 @@ module kakao_soc #(
 	end
 
 	wire [31:0] clint_q, uart0_q;
+
+	// the framebuffer's registers (FB). The count of late blocks comes
+	// from the pixel clock as it is: it is read for curiosity, and a
+	// value caught in the middle of changing is a wrong number once.
+	reg         fb_deep8;
+	wire [15:0] fb_under;
+	wire [31:0] fbr_q = { fb_under, 15'd0, fb_deep8 };
+	always @(posedge clk) begin
+		if (rst) fb_deep8 <= 1'b0;
+		else if (first && s_fbr && m_we && !m_adr[10] && m_adr[9:2] == 8'd0 && m_sel[0])
+			fb_deep8 <= m_dat_w[0];
+	end
 
 	k_clint #(.TICK(CLINT_TICK), .HOLD_HI(CPU64)) clint_i (
 		.clk(clk), .rst(rst),
@@ -506,13 +543,36 @@ module kakao_soc #(
 			assign ub_ack = ub_stb;
 		end
 
-		k_text #(.TERMS(TERMS + HIST), .FONT_HEX(FONT_HEX)) text_i (
+		wire [10:0] t_hc, t_vc;
+		wire        t_show;
+		wire [23:0] t_fbrgb;
+
+		k_text #(.TERMS(TERMS + HIST), .FONT_HEX(FONT_HEX), .FB(FB), .FB_SHOW(FB_SHOW)) text_i (
 			.clk(clk), .rst(rst),
 			.adr_i(t_adr), .dat_i(t_dat_w), .dat_o(t_dat_r), .we_i(t_we), .sel_i(t_sel),
 			.stb_i(t_stb), .ack_o(t_ack),
 			.pclk(pclk), .red(vid_r), .green(vid_g), .blue(vid_b),
-			.hsync(vid_hsync), .vsync(vid_vsync), .blank(vid_blank), .hc(), .vc()
+			.hsync(vid_hsync), .vsync(vid_vsync), .blank(vid_blank), .hc(t_hc), .vc(t_vc),
+			.fb_show(t_show), .fb_rgb(t_fbrgb)
 		);
+
+		if (FB != 0) begin : fb
+			wire [15:0] under;
+			k_fb #(.BASE({ FB_AT, 18'd0 })) fb_i (
+				.clk(clk), .rst(rst),
+				.show(t_show), .deep8(fb_deep8),
+				.m_stb(fb_stb_o), .m_adr(fb_adr_o), .m_ack(fb_ack_i), .m_dat(fb_dat_i),
+				.pal_we(first && s_fbr && m_we && m_adr[10]), .pal_a(m_adr[9:2]), .pal_d(m_dat_w[23:0]),
+				.pclk(pclk), .hc(t_hc), .vc(t_vc), .rgb(t_fbrgb),
+				.underruns(under)
+			);
+			assign fb_under = under;
+		end else begin : nofb
+			assign t_fbrgb = 24'd0;
+			assign fb_stb_o = 1'b0;
+			assign fb_adr_o = 25'd0;
+			assign fb_under = 16'd0;
+		end
 
 	end else begin : noterm
 
@@ -523,6 +583,9 @@ module kakao_soc #(
 		assign vcon_irq = 9'd0;
 		assign vcon_q = 32'd0;
 		assign { vid_r, vid_g, vid_b } = 24'd0;
+		assign fb_stb_o = 1'b0;
+		assign fb_adr_o = 25'd0;
+		assign fb_under = 16'd0;
 		assign vid_hsync = 1'b1;
 		assign vid_vsync = 1'b1;
 		assign vid_blank = 1'b1;
@@ -598,7 +661,8 @@ module kakao_soc #(
 	reg        io_rom;
 	always @(posedge clk) begin
 		io_rom <= s_rom;
-		io_q   <= s_clint ? clint_q : s_uart0 ? uart0_q : s_vcon ? vcon_q : s_lxu ? lxu_q : s_plic ? plic_q : 32'd0;
+		io_q   <= s_clint ? clint_q : s_uart0 ? uart0_q : s_vcon ? vcon_q : s_lxu ? lxu_q : s_plic ? plic_q :
+		          s_fbr ? fbr_q : 32'd0;
 		if (rst) begin
 			io_ack <= 1'b0;
 			poweroff_o <= 1'b0;

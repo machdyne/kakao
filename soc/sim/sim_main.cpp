@@ -115,6 +115,8 @@ static bool ends(const std::string &s, const char *e) {
 	return s.size() >= n && !s.compare(s.size() - n, n, e);
 }
 
+static const char *frame_to;		// +frame=: where the screen's picture goes
+
 int main(int argc, char **argv) {
 	Verilated::commandArgs(argc, argv);
 	Vsim_top *top = new Vsim_top;
@@ -160,6 +162,8 @@ int main(int argc, char **argv) {
 			linger = strtoull(argv[i] + 8, 0, 0);
 		} else if (!strncmp(argv[i], "+sdout=", 7)) {
 			sdout = argv[i] + 7;
+		} else if (!strncmp(argv[i], "+frame=", 7)) {
+			frame_to = argv[i] + 7;
 		} else if (!strncmp(argv[i], "+type=", 6)) {
 			FILE *f = fopen(argv[i] + 6, "r");
 			if (!f) { perror(argv[i] + 6); return 2; }
@@ -177,6 +181,25 @@ int main(int argc, char **argv) {
 		}
 	}
 
+#ifdef SOC
+	// the picture (+frame=<name>): the pixels that are not blanked, as
+	// they come, a frame at a time; the last whole frame is written to
+	// <name>.ppm each time a line of the script is typed and at the end
+	std::vector<unsigned char> fr_now, fr_last;
+	int fr_pclk = 0, fr_vs = 1, fr_n = 0;
+	unsigned long long fr_from = 0;
+	auto fr_write = [&](void) {
+		if (!frame_to || fr_last.size() != 640 * 480 * 3) return;
+		std::string name = std::string(frame_to) + "-" + std::to_string(fr_n++) + ".ppm";
+		FILE *f = fopen(name.c_str(), "wb");
+		if (!f) return;
+		fprintf(f, "P6\n640 480\n255\n");
+		fwrite(&fr_last[0], 1, fr_last.size(), f);
+		fclose(f);
+		fprintf(stderr, "sim: the screen is in %s\n", name.c_str());
+	};
+#endif
+
 	std::string tail;			// the last characters printed
 	size_t next = 0;			// the script line to type next
 	std::string typing;			// what is left of the line being typed
@@ -191,19 +214,44 @@ int main(int argc, char **argv) {
 
 	while (cyc < max && !top->poweroff && !Verilated::gotFinish()) {
 		top->clk = 1; top->eval();
+#ifdef SOC
+		if (frame_to) {
+			if (top->vid_pclk && !fr_pclk) {
+				if (!top->vid_blank) {
+					fr_now.push_back(top->vid_r); fr_now.push_back(top->vid_g); fr_now.push_back(top->vid_b);
+				}
+				if (!top->vid_vsync && fr_vs) {		// the frame is over
+					if (fr_now.size() == 640 * 480 * 3) fr_last.swap(fr_now);
+					fr_now.clear();
+				}
+				fr_vs = top->vid_vsync;
+			}
+			fr_pclk = top->vid_pclk;
+		}
+#endif
 		top->rx_put = 0;
 		if (top->tx_put) {
 			putchar(top->tx_char); fflush(stdout);
 			tail += (char)top->tx_char;
 			if (tail.size() > 64) tail.erase(0, tail.size() - 64);
 			quiet = 0;
-			armed = ends(tail, "# ") || ends(tail, "$ ") || ends(tail, "login: ");
+			armed = ends(tail, "# ") || ends(tail, "% ") || ends(tail, "$ ") || ends(tail, "login: ");
 		} else {
 			quiet++;
 		}
+#ifdef SOC
+		// (+frame=: and every quarter of a thousand million cycles once
+		// the script's last line is typed, to watch what it started:
+		// a window system gives no prompt back)
+		if (frame_to && fr_from && cyc > fr_from && (cyc - fr_from) % 250000000 == 0) fr_write();
+		if (frame_to && !fr_from && !script.empty() && next >= script.size() && typing.empty()) fr_from = cyc;
+#endif
 		// type the next line once the prompt has stood for a while
 		if (vwait && cyc > vwait) { vwait = 0; armed = true; }
 		if (typing.empty() && armed && !vwait && quiet > 2000000) {
+#ifdef SOC
+			if (next < script.size()) fr_write();
+#endif
 			if (next < script.size()) { typing = script[next++]; armed = false; }
 			else if (!script.empty() && !done_at) done_at = cyc;
 		}
@@ -274,6 +322,8 @@ int main(int argc, char **argv) {
 	fprintf(stderr, "sim: memory writes: %llu into another block, %llu into the held one, %llu cycles\n",
 		(unsigned long long)m->n_wr_new, (unsigned long long)m->n_wr_same, (unsigned long long)m->c_wr);
 	fprintf(stderr, "sim: memory blocks written by write combining: %llu\n", (unsigned long long)m->n_flush);
+	if (m->n_fb) fprintf(stderr, "sim: memory blocks read for the screen: %llu\n", (unsigned long long)m->n_fb);
+	fr_write();
 #endif
 	top->final();
 	delete top;

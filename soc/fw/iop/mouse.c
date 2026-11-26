@@ -1,7 +1,9 @@
 /*
  * The mouse: a pointer on the screen, text selected with the left
  * button held, Super-C to keep it and Super-V to type it into the
- * terminal shown. Linux knows nothing of it.
+ * terminal shown. The host knows nothing of it (built with INPUT, the
+ * mouse is also a device of the host's while the graphics screen is
+ * chosen: vinput.c).
  *
  * The pointer is a cell with its colours exchanged, and so are the
  * cells selected (the text mode's POINTER and SELECT). A selection is
@@ -21,7 +23,11 @@
 
 #define COLS 80
 #define ROWS 30
+#ifdef INPUT
+#define CLIP_MAX 2112			/* (INPUT=1: memory is short; 26 full lines of ASCII) */
+#else
 #define CLIP_MAX 2440			/* a screen of ASCII and its row ends */
+#endif
 
 #ifdef TERM_HOST
 #define REGS t_regs

@@ -1,0 +1,4206 @@
+diff --git a/soc/boards/Makefile b/soc/boards/Makefile
+index 30d9d89..2b8ef0b 100644
+--- a/soc/boards/Makefile
++++ b/soc/boards/Makefile
+@@ -30,6 +30,12 @@
+ #   USB=0         no USB host: the terminal without a keyboard
+ #   VIRTIO=n      virtio slots (2: the SD card as a disk and the network;
+ #                 0: none, and without a terminal no I/O processor)
++#   INPUT=1       the USB keyboard and mouse are also virtio input devices
++#   FB=1          a framebuffer in main memory, shown by Super+0 (DDR3 boards)
++#                 of the host's (fw/iop/vinput.c), theirs while the
++#                 graphics screen is chosen (Super with 0): four virtio
++#                 slots. With a terminal and USB only. (It fills the I/O
++#                 processor's memory to its last 48 bytes.)
+ #   I_KB=, D_KB=  the caches' sizes
+ #   TLB_BITS=n    the TLB has 2^n entries
+ #   FAST_MUL=0    the multiplier a bit a step instead of in DSP blocks
+@@ -226,6 +232,24 @@ else
+   KERN_AT = 0x80000000
+   ISA     = rv32ima
+ endif
++# INPUT=1: the keyboard and the mouse as the host's own devices too
++INPUT ?= 0
++ifeq ($(INPUT),1)
++  ifeq ($(TERMINAL)$(USB),11)
++    override VIRTIO = 4
++  else
++    override INPUT = 0
++  endif
++endif
++# FB=1: a framebuffer in the top 4 MB of main memory (640 by 480; the
++# terminal's Super+0 shows it), for a system that draws: Plan 9's rio.
++# With DDR3 memory, the terminal and k_cache only.
++FB ?= 0
++ifeq ($(FB),1)
++  ifneq ($(MEM)$(TERMINAL)$(KCACHE),ddr311)
++    override FB = 0
++  endif
++endif
+ IOP_WORDS ?= 11264
+ # frames the Ethernet MAC holds until the I/O processor takes them (2 or
+ # 4: a block RAM each)
+@@ -246,7 +270,11 @@ RTL = $(CURDIR)/kakao_top.v $(R)/kakao_soc.v $(R)/k_uart.v $(R)/k_vcon.v $(R)/k_
+ 	$(R)/k_cache.v $(R)/k_iop.v $(R)/k_text.v $(R)/k_virtio.v \
+ 	$(Z)/cpu/picorv32/picorv32.v $(Z)/cache_one.v $(Z)/spim.v $(CPU)
+ DEFS = -DSYNTHESIS -DFPGA_ECP5 -DOSC48
+-ifeq ($(MEM),ddr3)
++ifeq ($(MEM)$(FB),ddr31)
++  RTL  += $(R)/mem/k_ddr3.v $(R)/mem/k_ddr3_ctrl.v $(R)/k_fb.v $(Z)/mem/ddr3_phy_ecp5.v $(Z)/mem/ddr3_rdasm.v \
++	$(Z)/mem/ddr3_clk.v $(Z)/mem/ddr3_phy_init.v $(Z)/clk/pll2.v
++  DEFS += -DK_MEM_DDR3 -DK_FB
++else ifeq ($(MEM),ddr3)
+   RTL  += $(Z)/mem/ddr3.v $(Z)/mem/ddr3_ctrl.v $(Z)/mem/ddr3_phy_ecp5.v $(Z)/mem/ddr3_rdasm.v \
+ 	$(Z)/mem/ddr3_clk.v $(Z)/mem/ddr3_phy_init.v $(Z)/clk/pll2.v
+   DEFS += -DK_MEM_DDR3
+@@ -291,7 +319,8 @@ endif
+ PARAMS = -chparam KCACHE $(KCACHE) -chparam I_KB $(I_KB) -chparam D_KB $(D_KB) \
+ 	-chparam BTFN $(BTFN) -chparam TLB_BITS $(TLB_BITS) -chparam FAST_MUL $(FAST_MUL) \
+ 	-chparam TERMINAL $(TERMINAL) -chparam TERMS $(TERMS) -chparam HIST $(HIST) -chparam USB $(USB) \
+-	-chparam IOP_WORDS $(IOP_WORDS) -chparam VIRTIO $(VIRTIO)
++	-chparam IOP_WORDS $(IOP_WORDS) -chparam VIRTIO $(VIRTIO) \
++	-chparam FB $(FB) -chparam FB_AT $$(( $(MEM_MB) / 4 - 1 ))
+ 
+ all: $(B)/kakao.bit card
+ card: $(B)/kakao.dtb $(B)/boot.json
+@@ -324,7 +353,7 @@ $(KB)/$(ROM).0.hex: FORCE
+ $(IOP)/iop-headless.hex: FORCE
+ 	$(MAKE) -C $(IOP) iop-headless.hex HRAM_BYTES=$$(( $(IOP_WORDS) * 4 ))
+ $(IOP)/iop.hex: FORCE
+-	$(MAKE) -C $(IOP) BOARD="$(NAME)" CLOCK="48 MHz" MEMORY="$(MEMORY)" $(if $(filter 1,$(CPU64)),CPU="kakao64$(comma) RV64IMAFDC") RAM_BYTES=$$(( $(IOP_WORDS) * 4 )) $(if $(LAYOUTS),LAYOUTS="$(LAYOUTS)")
++	$(MAKE) -C $(IOP) BOARD="$(NAME)" CLOCK="48 MHz" MEMORY="$(MEMORY)" $(if $(filter 1,$(CPU64)),CPU="kakao64$(comma) RV64IMAFDC") RAM_BYTES=$$(( $(IOP_WORDS) * 4 )) $(if $(LAYOUTS),LAYOUTS="$(LAYOUTS)") INPUT=$(INPUT)
+ $(IOP)/k_font.hex: $(SOC)/tools/mkfont.py
+ 	python3 $(SOC)/tools/mkfont.py $(SOC)/ext/zeitlos/sw/data/font/font16.mem $@
+ FORCE:
+@@ -391,10 +420,10 @@ $(B)/kakao.dtb: $(SOC)/tools/mkdts.py Makefile
+ 	@mkdir -p $(B)
+ ifeq ($(CPU64),1)
+ 	python3 $(SOC)/tools/mkdts.py --model "Kakao SOC, $(NAME), kakao64" --mem $(MEM_MB) --consoles $(TERMS) --virtio $(VIRTIO) \
+-		--isa $(ISA) --bootargs "$(BOOTARGS)" > $(B)/kakao.dts
++		--isa $(ISA) --bootargs "$(BOOTARGS)" $(if $(filter 1,$(FB)),--fb) > $(B)/kakao.dts
+ else
+ 	python3 $(SOC)/tools/mkdts.py --model "Kakao SOC, $(NAME)" --mem $(MEM_MB) --consoles $(TERMS) --virtio $(VIRTIO) \
+-		--initrd $(INITRD) $$(printf '0x%x' $$(( $(INITRD) + 0x800000 ))) > $(B)/kakao.dts
++		--initrd $(INITRD) $$(printf '0x%x' $$(( $(INITRD) + 0x800000 ))) $(if $(filter 1,$(FB)),--fb) > $(B)/kakao.dts
+ endif
+ 	dtc -q -I dts -O dtb -o $@ $(B)/kakao.dts
+ 
+diff --git a/soc/boards/README.md b/soc/boards/README.md
+index a7a19d4..581e49d 100644
+--- a/soc/boards/README.md
++++ b/soc/boards/README.md
+@@ -50,6 +50,8 @@ Options, on the command line:
+ | `USB=0`, `VIRTIO=0` | no USB; no disk and no network | |
+ | `LAYOUTS="us gb de fr"` | the keyboard layouts built in, by Zeitlos's names | `us gb de de-nodeadkeys` |
+ | `KCACHE=0` | Zeitlos's cache instead of `k_cache` | |
++| `INPUT=1` | the USB keyboard and mouse are virtio input devices too, the host's with Super and 0 | off |
++| `FB=1` | a framebuffer in the last 4 MB of main memory, 640 by 480, on the screen with Super and 0 (`docs/design.md`, "The framebuffer"); for `INPUT=1` | off; DDR3 boards |
+ 
+ ## The SD card: Kakao Linux (Buildroot), kakao32
+ 
+@@ -140,6 +142,28 @@ can hold both systems, and the bitstream that is loaded chooses:
+ 
+ The names in a list are free; only two files cannot have one name.
+ 
++## One card for more than one system
++
++`/sys/linux` is where kboot looks unless the card says otherwise: a
++file `/sys/boot.txt`, whose first word is another directory of `/sys`.
++With `plan9` in it kboot reads `/sys/plan9/boot.json` (or
++`boot64.json`), and the names in that list are files of `/sys/plan9`.
++A list can name another directory's file by its path, so what two
++systems share is on the card once:
++
++```
++/sys/boot.txt              plan9
++/sys/plan9/boot.json       { "/sys/linux/fw_jump.bin": "0x80000000",
++                             "9kkcpu.bin": "0x80200000",
++                             "/sys/linux/kakao.dtb": "0x87f00000" }
++/sys/plan9/9kkcpu.bin
++/sys/linux/...             as before
++```
++
++To boot the other system, change the word (or remove the file: Linux).
++The word is at most fifteen letters. kboot is in the bitstream, so this
++needs a bitstream built since it was added.
++
+ ## Writing a card, and a card that does not boot
+ 
+ ```
+@@ -153,8 +177,7 @@ after that, what it held before.
+ When kboot cannot boot from a card it says what it found there (on the
+ DDR3 boards): the first partition's type and place when there is no
+ FAT, and otherwise the FAT's place and cluster size, how far towards
+-`/sys/linux/boot.json` it got and the names in the directory it stopped
+-in. `make -C ../fw/kboot hosttest` builds the same code for the PC, and
++`boot.json` it got and the names in the directory it stopped in. `make -C ../fw/kboot hosttest` builds the same code for the PC, and
+ `../fw/kboot/build/hosttest/hosttest <image or /dev/sdX>` runs it on a
+ card of your own.
+ 
+diff --git a/soc/boards/kakao_top.v b/soc/boards/kakao_top.v
+index 71b30ee..0b32070 100644
+--- a/soc/boards/kakao_top.v
++++ b/soc/boards/kakao_top.v
+@@ -68,6 +68,8 @@ module kakao_top #(
+ 	parameter USB = 1,				// the terminal's keyboard: the USB host ports
+ 	parameter VIRTIO = 2,			// virtio slots (the SD card as a disk, the network)
+ 	parameter IOP_WORDS = 11264,		// the I/O processor's memory, in words
++	parameter FB = 0,				// a framebuffer in main memory (FB=1: DDR3, TERMINAL, KCACHE)
++	parameter FB_AT = 127,			// ...its 4 MB: the last of main memory's (MEM_MB / 4 - 1)
+ 	// (K_IOP_HEADLESS: a board without a terminal, whose I/O processor
+ 	// is the virtio devices alone)
+ `ifdef K_IOP_HEADLESS
+@@ -193,6 +195,15 @@ module kakao_top #(
+ 	wire        mem_we, mem_stb, mem_ack;
+ 	wire  [3:0] mem_sel;
+ 
++	// the framebuffer's port to main memory (FB)
++	wire         fb_stb, fb_ack;
++	wire  [24:0] fb_adr;
++	wire [127:0] fb_dat;
++`ifndef K_FB
++	assign fb_ack = 1'b0;
++	assign fb_dat = 128'd0;
++`endif
++
+ 	wire  [1:0] reg_adr;
+ 	wire [31:0] reg_dat_w, reg_dat_r;
+ 	wire        reg_we, reg_stb, reg_ack;
+@@ -330,6 +341,7 @@ module kakao_top #(
+ 		.CPU64(CPU64), .KCACHE(KCACHE), .I_KB(I_KB), .D_KB(D_KB), .BTFN(BTFN), .TLB_BITS(TLB_BITS), .FAST_MUL(FAST_MUL),
+ 		.TERMINAL(TERMINAL), .TERMS(TERMS), .HIST(HIST), .IOP_HEX(IOP_HEX), .FONT_HEX(FONT_HEX),
+ 		.USB(USB), .IOP_WORDS(IOP_WORDS), .VIRTIO(VIRTIO),
++		.FB(FB), .FB_AT(FB_AT),
+ 		.CACHE_KB(32),
+ 		.ROM_WORDS(ROM_WORDS),
+ 		.ROM_HEX(ROM_HEX),
+@@ -341,6 +353,7 @@ module kakao_top #(
+ `endif
+ 	) soc (
+ 		.clk(clk), .rst(rst),
++		.fb_stb_o(fb_stb), .fb_adr_o(fb_adr), .fb_ack_i(fb_ack), .fb_dat_i(fb_dat),
+ 		.mem_adr_o(mem_adr), .mem_dat_o(mem_dat_w), .mem_dat_i(mem_dat_r),
+ 		.mem_we_o(mem_we), .mem_sel_o(mem_sel), .mem_stb_o(mem_stb), .mem_ack_i(mem_ack),
+ 		.reg_adr_o(reg_adr), .reg_dat_o(reg_dat_w), .reg_dat_i(reg_dat_r),
+@@ -407,11 +420,22 @@ module kakao_top #(
+ 
+ `else
+ 
++	// with a framebuffer the controller is the SOC's own copy of
++	// Zeitlos's (rtl/mem/k_ddr3.v), which has a port for the scan-out
++`ifdef K_FB
++	k_ddr3 #(
++		.ROW_BITS(15),
++		.TRFC_NS(260),
++		.WCOMBINE(KCACHE)
++	) ddr3_i (
++		.fb_stb_i(fb_stb), .fb_adr_i(fb_adr), .fb_ack_o(fb_ack), .fb_dat_o(fb_dat),
++`else
+ 	ddr3 #(
+ 		.ROW_BITS(15),
+ 		.TRFC_NS(260),
+ 		.WCOMBINE(KCACHE)
+ 	) ddr3_i (
++`endif
+ 		.clk_i(clk),
+ 		.rst_i(rst),
+ 		.eclk_i(eclk),
+diff --git a/soc/docs/design.md b/soc/docs/design.md
+index 257b3ed..9743541 100644
+--- a/soc/docs/design.md
++++ b/soc/docs/design.md
+@@ -22,6 +22,7 @@ the SOC has.
+ | 0x0200_0000 | 64 KB | CLINT: msip, mtimecmp, mtime | `sifive,clint0` | | yes |
+ | 0x0300_0100 | 256 B | the cache's registers | (firmware only) | | yes (not in QEMU's map) |
+ | 0x0300_0700 | 16 B | main memory's registers (DDR3 training) | (firmware only) | | yes (not in QEMU's map) |
++| 0x0300_1000 | 4 KB | the framebuffer's registers: depth, and 256 colours | `kakao,ctrl` of the framebuffer's node | | with `FB=1` (not in QEMU's map) |
+ | 0x0c00_0000 | 6 MB | PLIC | `sifive,plic-1.0.0` | | yes, 16 sources |
+ | 0x1000_0000 | 256 B | UART 0: console 0, the serial port and the first terminal | `ns16550` | 10 | yes |
+ | 0x1000_0100 .. 0x1000_0900 | 256 B each | consoles 1..9: the other terminals | `ns16550` | 1..9 | yes, as many as the board has terminals (not in QEMU's map) |
+@@ -30,11 +31,13 @@ the SOC has.
+ | 0x2000_0000 | | flash | `cfi-flash` | | no |
+ | 0x3000_0000 | | PCI | `pci-host-ecam-generic` | | no |
+ | 0x8000_0000 | 32 MB .. 512 MB | main memory | | | SDRAM or DDR3 |
++| the last 4 MB of main memory | 4 MB | the framebuffer, 640 by 480 | `simple-framebuffer` | | with `FB=1`: not the system's memory then |
+ 
+ The consoles after the first are the SOC's addition; they are
+ described in the board's device tree (`tools/mkdts.py`) and use a
+-mainline driver (`ns16550`). There is no framebuffer: the picture is
+-the text mode's, which Linux does not see.
++mainline driver (`ns16550`). The picture is the text mode's, which the
++host does not see; a build with `FB=1` has a framebuffer besides ("The
++framebuffer", below).
+ 
+ ## Who implements what
+ 
+@@ -47,9 +50,9 @@ the text mode's, which Linux does not see.
+   - the terminals: each console's output is drawn into the text mode,
+     and takes its keys from the USB keyboard;
+   - the virtio back ends: block (the SD card) and net (the RMII
+-    Ethernet). Thought of and not built: USB sticks, SPI and USB
+-    Ethernet, WiFi, the keyboard and mouse as devices Linux sees, a
+-    random number device;
++    Ethernet), and with `INPUT` the keyboard and the mouse (input).
++    Thought of and not built: USB sticks, SPI and USB Ethernet, WiFi,
++    a random number device;
+   - the USB host stack: the I/O processor owns the USB ports, Linux
+     does not see the controller;
+   - the menus, on a key, over the text screen.
+@@ -164,11 +167,133 @@ Up or Down moves the picture a row, with Page Up or Page Down 25; a key
+ typed returns to the screen. The mouse's pointer is shown while the
+ mouse moves and for two seconds after.
+ 
++### The keyboard and the mouse as the host's own devices
++
++Built with `INPUT=1` (`boards/Makefile`; off unless asked for), the
++keyboard and the mouse are also two virtio input devices, in the third
++and fourth virtio slots (`fw/iop/vinput.c`): what Linux's
++`virtio_input` driver and Plan 9's `kkinput.c` take. They are for a
++host that draws its own picture: with the framebuffer (`FB=1`, below)
++they are what a window system needs.
++
++Which of the two the keys and the mouse are is chosen at the keyboard.
++Super with 0 is the graphics screen: from then on a key is an event of
++the host's keyboard, down and up, with Linux's key code and no
++repeats (the host makes its own), and the mouse is the host's pointer;
++with `FB=1` the framebuffer is on the screen from then on.
++Super with another digit, or with Left or Right, is a terminal again,
++and what the host thought was held down is let go. (With ten terminals
++the tenth is reached with Super and Left; Super with 0 is no longer
++it.) The Super keys and Scroll Lock never reach the host, and the
++menus open over the graphics screen as over a terminal and take the
++keys while they are open.
++
++The pointer is a place, not a movement: the USB controller keeps the
++pointer's place itself, in pixels of the picture, so the host's device
++is one with absolute axes, X from 0 to 639 and Y to 479, and the three
++buttons. The keyboard's Num, Caps and Scroll Lock lights are the
++host's to set while it has the keyboard.
++
++A virtio input device's configuration is asked rather than read: the
++driver writes what it wants to know and reads the answer. So a slot's
++configuration can now be written (`virtio.c`: `cfg_read`,
++`cfg_write`), with the byte lanes the host used, which `k_virtio.v`
++already passed on.
++
++It costs the I/O processor 1.7 KB of program and 0.3 KB of data, and
++with that its 44 KB are full: to the last byte, since Super with 0 also
++turns the screen (the clipboard gave up 8 bytes of its 2440 for that;
++a screen of text is 2430). A build that does not fit can leave a
++keyboard layout out (`LAYOUTS=`), half a kilobyte each. More memory was the
++first thought and is not to be had: the Sergei ML2 with kakao64 uses
++all 108 of the FPGA's block RAMs already. So the devices say less than
++they might (no serial number, no vendor), the events waiting for the
++host are sixteen, packed into four bytes each, and whatever is added to
++the I/O processor's program next has to make room first.
++
++On the Sergei ML2 with kakao64 the two more virtio slots are about 120
++more logic cells placed (29,272 against 29,150). One place-and-route of
++each with the same seed, on an older nextpnr (0.6) than the boards are
++built with, gave 45.0 MHz with `INPUT=1` and 46.9 MHz without: both
++short of 48 MHz there, where the release's tools reach 49.6, so the
++difference says little more than that this build has no slack to give
++and wants its seeds tried (`make seeds`).
++
++`make input` in `soc/sim` (`tb_iop_input.v`) is its test: the I/O
++processor with Zeitlos's models of a USB keyboard and mouse, the virtio
++slots, and a driver's side of them written out in the testbench.
++
++### The framebuffer
++
++Built with `FB=1` (`boards/Makefile`; off unless asked for; DDR3 boards
++with the terminal and `k_cache`), the last 4 MB of main memory are a
++framebuffer: 640 by 480 pixels from their first byte, a line after the
++other, shown where a terminal would be when Super with 0 is pressed
++(`INPUT=1`, above, goes with it: the keys and the mouse are the host's
++on that screen). The device tree has it as a `simple-framebuffer` in
++`r5g6b5`, and has that much less memory for the system.
++
++- **Two depths.** 16 bits a pixel, `r5g6b5`, is how it starts, and what
++  a `simple-framebuffer` driver finds. Bit 0 of the word at 0x0300_1000
++  makes it 8 bits a pixel through 256 colours, which are the words from
++  0x0300_1400 on (0x00rrggbb, write only): half the bytes to draw and
++  to read out, and what Plan 9 uses. A line is 640 pixels either way,
++  so 1280 or 640 bytes. Bits 31..16 of the same word count the blocks
++  that came too late for the picture, which should stay 0.
++- **Reading it out** (`rtl/k_fb.v`). The picture's blocks of 16 bytes
++  are read from main memory as the screen is drawn, ahead of it, into
++  a queue of eight between the SOC's clock and the pixel clock (in
++  distributed RAM, as the colours are: the Sergei ML2 with kakao64 has
++  no block RAM left). The frame's first block is asked for when the
++  last line has been drawn, so the queue is full when the next frame
++  begins. Nothing is read while a terminal is shown.
++- **The memory's second port.** The scan-out does not go through the
++  bus: main memory has a port for it (`fb_*`), on which a whole block
++  is read at once and which is served before the bus. The DDR3
++  controller with that port is the SOC's own copy of Zeitlos's
++  (`rtl/mem/k_ddr3.v`, `k_ddr3_ctrl.v`; the PHY and the clocks are
++  still Zeitlos's files), used by builds with `FB=1` only: every other
++  build has Zeitlos's controller as before. A block read for the
++  screen does not touch the controller's block register, so the bus's
++  stores still combine, and what the register holds unwritten is on the
++  screen when it is written, 8 idle cycles later at the most.
++- **The cache out of the way** (`rtl/k_cache.v`: `FB`, `FB_AT`). What a
++  write-back cache holds the screen does not show, so the 4 MB are not
++  cached: an access to them is one of the memory's own, as a device's
++  is. That makes the framebuffer slow to write and slower to read, and
++  a host that draws a lot does better drawing in ordinary memory and
++  writing what has changed, whole words and in order, which the
++  controller's write combining turns into one write a block. Plan 9
++  does (`plan9/docs/port.md`).
++- **The text mode's part** (`rtl/k_text.v`). A register, GRAPHICS
++  (0x20020 of the text mode's, the I/O processor's to write), puts the
++  framebuffer's pixels where the terminal's would be, from a frame's
++  beginning. The menus and the notes still open over it.
++
++**What it costs.** At 640 by 480 and 16 bits the screen reads 80 blocks
++a line, 38,400 a frame, each an ACTIVATE and a READ of its own: 13 of
++the controller's cycles (10 to the data, and the row's closing), of
++the 19 there are for a block while a line is drawn. So for as long as
++the framebuffer is shown the memory is the screen's for about two
++thirds of the time and the CPU's for the rest (8 bits a pixel: one
++third); how much slower that makes a program depends on how
++often it misses the caches. Reading a row's blocks in one burst, the
++row left open, would cut that to a fraction, and is what a larger
++picture needs first: 1024 by 768 at 16 bits does not fit as it is. The
++size is `k_fb.v`'s parameters and the text mode's timing; 4 MB are room
++for 1280 by 1024 at 16 bits.
++
++`make ddr3fb` in `soc/sim` (`tb_ddr3_fb.v`) tests the controller's port
++against Zeitlos's model of the DRAM, which checks the protocol's
++timing: blocks read at the screen's rate while the bus reads and
++writes, in the same rows and others. The simulated SOC has the port in
++its model of main memory (`sim_soc.v`, `-GFB=1`), shows the
++framebuffer from reset, and writes the picture to a file (`+frame=`).
++
+ Not there yet: the settings kept over a power cycle, choosing what the
+ machine boots from the menus, a console faster than a UART for the
+ first terminal (the terminal draws about 60,000 characters a second;
+-UART 0 at 1 Mbaud gives it 100,000 at most), the mouse as a device
+-Linux sees.
++UART 0 at 1 Mbaud gives it 100,000 at most).
+ 
+ ## The disk and the network
+ 
+diff --git a/soc/fw/iop/Makefile b/soc/fw/iop/Makefile
+index 6f12048..454698d 100644
+--- a/soc/fw/iop/Makefile
++++ b/soc/fw/iop/Makefile
+@@ -13,6 +13,9 @@
+ #                 (ext/zeitlos/sw/common/zkbd_layouts.c): the first is
+ #                 the one after power-on
+ #   BOARD=, CLOCK=, MEMORY=, CPU=   what "About this machine" says
++#   INPUT=1       the keyboard and the mouse are also virtio input
++#                 devices of the host's, in the third and fourth virtio
++#                 slots (vinput.c): the SOC is then built with VIRTIO=4
+ #   EXTRA=        more for the compiler (-DVDEBUG: the disk's requests
+ #                 are written to the simulation's log)
+ #
+@@ -39,6 +42,11 @@ CFLAGS = -march=rv32ic -mabi=ilp32 -Os -msave-restore -fno-jump-tables \
+ 	-DZ_SMALL -DZ_USBH_OWN_PRINTF \
+ 	'-DK_BOARD="$(BOARD)"' '-DK_CLOCK="$(CLOCK)"' '-DK_MEMORY="$(MEMORY)"' '-DK_CPU="$(CPU)"' $(EXTRA)
+ OWN    = main.c term.c kbd.c hud.c mouse.c usbglue.c virtio.c vblk.c sd.c vnet.c nic_rmii.c
++INPUT  ?= 0
++ifeq ($(INPUT),1)
++OWN    += vinput.c
++CFLAGS += -DINPUT
++endif
+ THEIRS = $(ZUSB)/usbh.c $(ZUSB)/usbh_hid.c $(ZUSB)/usbh_hub.c
+ 
+ all: iop.hex
+@@ -54,7 +62,7 @@ iop-headless.hex: iop-headless.elf
+ 
+ # what was asked for, kept: asked for something else, everything is made
+ # again (the boards ask for their own names)
+-CONFIG = $(RAM_BYTES) $(LAYOUTS) $(BOARD) $(CLOCK) $(MEMORY) $(CPU) $(EXTRA)
++CONFIG = $(RAM_BYTES) $(LAYOUTS) $(BOARD) $(CLOCK) $(MEMORY) $(CPU) $(EXTRA) $(filter 1,$(INPUT))
+ config.stamp: FORCE
+ 	@echo '$(CONFIG)' | cmp -s - $@ || echo '$(CONFIG)' > $@
+ FORCE:
+diff --git a/soc/fw/iop/iop.h b/soc/fw/iop/iop.h
+index a773953..648e3c9 100644
+--- a/soc/fw/iop/iop.h
++++ b/soc/fw/iop/iop.h
+@@ -31,6 +31,20 @@ void mouse_pump(void);					/* what is being pasted, on its way */
+ extern uint8_t mouse_sel_on;
+ int host_room(void);					/* main.c: the queue to the hosts takes another */
+ 
++/* vinput.c (INPUT): the keyboard and mouse as the host's own devices,
++   while the graphics screen is chosen */
++#ifdef INPUT
++int vinput_active(void);
++int vinput_key(unsigned usage, int down);	/* 1: the host's, not to be typed */
++void vinput_mouse(int x, int y, int buttons);
++void vinput_show(int on);				/* the graphics screen, or a terminal again */
++#else
++#define vinput_active() 0
++#define vinput_key(usage, down) 0
++#define vinput_mouse(x, y, buttons) ((void)0)
++#define vinput_show(on) ((void)0)
++#endif
++
+ /* hud.c: the menus, on the text mode's overlay */
+ void hud_init(void);
+ void hud_toggle(void);
+diff --git a/soc/fw/iop/kbd.c b/soc/fw/iop/kbd.c
+index 47af30a..7785c6c 100644
+--- a/soc/fw/iop/kbd.c
++++ b/soc/fw/iop/kbd.c
+@@ -191,6 +191,13 @@ static void key_event(uint8_t usage, int down)
+ 	   cursor and page keys move through what scrolled off the screen */
+ 	if (gui_down && usage < 0xe0) {
+ 		if (!down) return;
++#ifdef INPUT
++		/* 0 is the graphics screen, where the keyboard and the mouse
++		   are the host's (vinput.c); any terminal ends that. (The
++		   tenth terminal, if there is one, is reached with Left.) */
++		if (usage == 0x27) { rep_usage = 0; dead = 0; vinput_show(1); return; }
++		if ((usage >= 0x1e && usage <= 0x26) || usage == 0x50 || usage == 0x4f) vinput_show(0);
++#endif
+ 		if (usage >= 0x1e && usage <= 0x27) show(usage - 0x1e);
+ 		else if (usage == 0x50) show(term_shown() - 1);
+ 		else if (usage == 0x4f) show(term_shown() + 1 == term_count() ? 0 : term_shown() + 1);
+@@ -204,6 +211,14 @@ static void key_event(uint8_t usage, int down)
+ 		return;
+ 	}
+ 
++	/* the graphics screen: the key is the host's, down and up, as it
++	   is; but not while the menus are open, and never Scroll Lock,
++	   which opens them */
++	if (vinput_active() && !hud_active() && usage != U_SCROLL) {
++		vinput_key(usage, down);
++		return;
++	}
++
+ 	if (usage == U_CAPS && kbd_caps_ctrl) { caps_held = (uint8_t)down; return; }
+ 	if (usage >= 0xe0) return;			/* the other modifiers: only their bits */
+ 	/* a key typed: back to the screen itself */
+@@ -256,6 +271,9 @@ static void block(int b)
+ 	if (((info >> 24) & 3) == Z_USBH_TYP_MOUSE) {
+ 		uint32_t cu = z_usbh_rd(b ? Z_USBH_HID1_CURSOR : Z_USBH_HID0_CURSOR);
+ 		blk[b].is_mouse = 1;
++		if (vinput_active() && !hud_active())
++			vinput_mouse((int)((cu & 0x3ff) | ((cu >> 18) & 0x400)), (int)((cu >> 10) & 0x3ff), (int)((cu >> 20) & 0xff));
++		else
+ 		mouse_at((int)((cu & 0x3ff) | ((cu >> 18) & 0x400)), (int)((cu >> 10) & 0x3ff), (int)((cu >> 20) & 0xff));
+ 	} else if (blk[b].is_mouse) {
+ 		blk[b].is_mouse = 0;
+diff --git a/soc/fw/iop/main.c b/soc/fw/iop/main.c
+index aa05431..cd8df81 100644
+--- a/soc/fw/iop/main.c
++++ b/soc/fw/iop/main.c
+@@ -125,6 +125,9 @@ int main(void)
+ 	kbd_init();
+ 	vblk_init();
+ 	vnet_init();
++#ifdef INPUT
++	vinput_init();
++#endif
+ 
+ 	for (;;) {
+ 		uint32_t c = CON;
+@@ -168,5 +171,8 @@ int main(void)
+ 		virtio_notified();		/* (the queues are looked at every turn) */
+ 		vblk_poll();
+ 		vnet_poll();
++#ifdef INPUT
++		vinput_poll();
++#endif
+ 	}
+ }
+diff --git a/soc/fw/iop/mouse.c b/soc/fw/iop/mouse.c
+index fe1ae8d..7c0d962 100644
+--- a/soc/fw/iop/mouse.c
++++ b/soc/fw/iop/mouse.c
+@@ -1,7 +1,9 @@
+ /*
+  * The mouse: a pointer on the screen, text selected with the left
+  * button held, Super-C to keep it and Super-V to type it into the
+- * terminal shown. Linux knows nothing of it.
++ * terminal shown. The host knows nothing of it (built with INPUT, the
++ * mouse is also a device of the host's while the graphics screen is
++ * chosen: vinput.c).
+  *
+  * The pointer is a cell with its colours exchanged, and so are the
+  * cells selected (the text mode's POINTER and SELECT). A selection is
+@@ -21,7 +23,7 @@
+ 
+ #define COLS 80
+ #define ROWS 30
+-#define CLIP_MAX 2440			/* a screen of ASCII and its row ends */
++#define CLIP_MAX 2432			/* a screen of ASCII and its row ends (2430) */
+ 
+ #ifdef TERM_HOST
+ #define REGS t_regs
+diff --git a/soc/fw/iop/vinput.c b/soc/fw/iop/vinput.c
+new file mode 100644
+index 0000000..6bbf14c
+--- /dev/null
++++ b/soc/fw/iop/vinput.c
+@@ -0,0 +1,341 @@
++/*
++ * The USB keyboard and mouse as two virtio input devices of the host's
++ * ("Virtual I/O Device (VIRTIO) Version 1.1", 5.8), in the third and
++ * fourth virtio slots: what Linux's virtio_input driver and Plan 9's
++ * kkinput.c take. Built with INPUT.
++ *
++ * They are the host's while the graphics screen is chosen (Super with
++ * 0; Super with another digit is a terminal again). Until then, and
++ * while the menus are open, the keyboard types into a terminal and the
++ * mouse selects text there, as without this. The Super keys and Scroll
++ * Lock stay here always, and the host never sees them.
++ *
++ * A device sends events of eight bytes, type, code and value, as Linux
++ * has them, each in a buffer of the driver's (queue 0), and takes the
++ * same from the driver (queue 1: the keyboard's lights).
++ *
++ *   the keyboard   EV_KEY with Linux's key code, 1 down and 0 up, then
++ *                  EV_SYN. No repeats: the host makes its own.
++ *   the mouse      a pointer with a place, not a movement, since the
++ *                  USB controller keeps the pointer's place itself:
++ *                  EV_ABS X and Y in pixels of the picture, EV_KEY
++ *                  BTN_LEFT, BTN_RIGHT and BTN_MIDDLE, then EV_SYN.
++ *
++ * The configuration is asked, not read: the driver writes what it
++ * wants to know (select, subsel) and reads the answer's size and
++ * bytes. The answers are made when asked.
++ */
++
++#include "iop.h"
++#include "virtio.h"
++#include "usbh.h"
++#include "zkbd.h"
++
++#define VIRTIO_ID_INPUT  18
++
++#define EV_SYN  0
++#define EV_KEY  1
++#define EV_ABS  3
++#define EV_LED  0x11
++#define EV_REP  0x14
++
++#define BTN_LEFT    0x110
++#define BTN_RIGHT   0x111
++#define BTN_MIDDLE  0x112
++
++/* what the configuration is asked for */
++#define CFG_ID_NAME    0x01
++#define CFG_EV_BITS    0x11
++#define CFG_ABS_INFO   0x12
++
++/* the picture the pointer's place is in */
++#ifndef K_FB_W
++#define K_FB_W 640
++#define K_FB_H 480
++#endif
++
++/*
++ * A USB keyboard's usages (the keyboard page) as Linux's key codes: the
++ * table of Linux's own USB keyboard driver, as far as a keyboard's
++ * keys go. 0: not a key the host is told of.
++ */
++static const uint8_t keycode[0x68] = {
++	  0,  0,  0,  0, 30, 48, 46, 32, 18, 33, 34, 35, 23, 36, 37, 38,
++	 50, 49, 24, 25, 16, 19, 31, 20, 22, 47, 17, 45, 21, 44,  2,  3,
++	  4,  5,  6,  7,  8,  9, 10, 11, 28,  1, 14, 15, 57, 12, 13, 26,
++	 27, 43, 43, 39, 40, 41, 51, 52, 53, 58, 59, 60, 61, 62, 63, 64,
++	 65, 66, 67, 68, 87, 88, 99,  0,119,110,102,104,111,107,109,106,
++	105,108,103, 69, 98, 55, 74, 78, 96, 79, 80, 81, 75, 76, 77, 71,
++	 72, 73, 82, 83, 86,127,116,117,
++};
++/* ...and its modifiers, usages 0xe0 to 0xe7; the Super keys are ours */
++static const uint8_t modcode[8] = { 29, 42, 56, 0, 97, 54, 100, 0 };
++
++struct vinput {
++	struct vdev dev;
++	uint8_t  sel, subsel;
++	uint8_t  is_mouse;
++};
++
++static struct vinput kbd_dev, mouse_dev;
++
++/* the answer to what was asked last, and of which device: there is
++   room for one (the I/O processor's memory is nearly full), and it is
++   made again when the other device is read */
++static uint8_t ans[36], ans_size;		/* (the longest: the pointer's buttons, 35 bytes) */
++static struct vinput *ans_of;
++
++static uint8_t gfx;				/* the graphics screen is chosen */
++static uint8_t held[16];		/* key codes the host has been told are down (all below 128) */
++static uint16_t m_x = 0xffff, m_y;
++static uint8_t m_btn;
++
++/* events on their way: a device's driver may have no buffer just now.
++   Packed small, the I/O processor's memory being nearly full: whose it
++   is, its type (five bits) and its code (ten), and a value that is a
++   place in the picture at the most. */
++#define EVQ 16
++#define EV_MOUSE 0x8000
++static struct { uint16_t tc, value; } evq[EVQ];
++static uint8_t ev_in, ev_out;
++
++static unsigned code_of(unsigned usage)
++{
++	if (usage >= 0xe0 && usage <= 0xe7) return modcode[usage - 0xe0];
++	return usage < sizeof keycode ? keycode[usage] : 0;
++}
++
++static void put(int mouse, unsigned type, unsigned code, uint32_t value)
++{
++	uint8_t n = (uint8_t)((ev_in + 1) % EVQ);
++	if (n == ev_out) return;		/* full: the host is not listening */
++	evq[ev_in].tc = (uint16_t)(type << 10 | code | (mouse ? EV_MOUSE : 0));
++	evq[ev_in].value = (uint16_t)value;
++	ev_in = n;
++}
++
++/* ------------------------------------------------------------------
++ * the configuration
++ * ------------------------------------------------------------------ */
++
++static void bit(unsigned n)
++{
++	ans[n >> 3] |= (uint8_t)(1u << (n & 7));
++	if (ans_size < (n >> 3) + 1) ans_size = (uint8_t)((n >> 3) + 1);
++}
++
++static void str(const char *s)
++{
++	while (*s) ans[ans_size++] = (uint8_t)*s++;
++}
++
++static void answer(struct vinput *v)
++{
++	unsigned i;
++
++	for (i = 0; i < sizeof ans; i++) ans[i] = 0;
++	ans_size = 0;
++	ans_of = v;
++	switch (v->sel) {
++	case CFG_ID_NAME:
++		str(v->is_mouse ? "Kakao pointer" : "Kakao keyboard");
++		break;
++	/* (no serial number and no bus, vendor and product: a driver takes
++	   those as none and zeros, and the I/O processor's memory is
++	   nearly full) */
++	case CFG_EV_BITS:
++		if (v->is_mouse) {
++			if (v->subsel == EV_KEY) { bit(BTN_LEFT); bit(BTN_RIGHT); bit(BTN_MIDDLE); }
++			else if (v->subsel == EV_ABS) { bit(0); bit(1); }
++		} else {
++			if (v->subsel == EV_KEY) {
++				for (i = 4; i < sizeof keycode; i++) if (keycode[i]) bit(keycode[i]);
++				for (i = 0; i < 8; i++) if (modcode[i]) bit(modcode[i]);
++			} else if (v->subsel == EV_LED) { bit(0); bit(1); bit(2); }
++			else if (v->subsel == EV_REP) { bit(0); bit(1); }
++		}
++		break;
++	case CFG_ABS_INFO:
++		/* least, most, fuzz, flat, resolution */
++		if (v->is_mouse && v->subsel < 2) {
++			unsigned max = v->subsel ? K_FB_H - 1 : K_FB_W - 1;
++			ans[4] = (uint8_t)max; ans[5] = (uint8_t)(max >> 8);
++			ans_size = 20;
++		}
++		break;
++	}
++}
++
++/* select, subsel, size, five bytes of nothing, then the answer */
++static uint32_t cfg_read(struct vdev *d, uint32_t off)
++{
++	struct vinput *v = (struct vinput *)d;
++	uint32_t w = 0;
++	unsigned i, a;
++
++	if (ans_of != v) answer(v);
++	off &= ~3u;
++	if (off == 0) return (uint32_t)v->sel | (uint32_t)v->subsel << 8 | (uint32_t)ans_size << 16;
++	for (i = 0; i < 4; i++) {
++		a = off + i;
++		if (a >= 8 && a - 8 < sizeof ans) w |= (uint32_t)ans[a - 8] << (8 * i);
++	}
++	return w;
++}
++
++static void cfg_write(struct vdev *d, uint32_t off, uint32_t val, uint32_t lanes)
++{
++	struct vinput *v = (struct vinput *)d;
++
++	if ((off & ~3u) != 0) return;
++	if (lanes & 1) v->sel = (uint8_t)val;
++	if (lanes & 2) v->subsel = (uint8_t)(val >> 8);
++	answer(v);
++}
++
++static void dev_reset(struct vdev *d)
++{
++	struct vinput *v = (struct vinput *)d;
++	v->sel = v->subsel = 0;
++	ans_of = 0;
++}
++
++/* ------------------------------------------------------------------
++ * what kbd.c tells us
++ * ------------------------------------------------------------------ */
++
++int vinput_active(void)
++{
++	return gfx;
++}
++
++/* a key went down or up; 1: it was the host's, and is not to be typed */
++int vinput_key(unsigned usage, int down)
++{
++	unsigned c;
++
++	if (!gfx) return 0;
++	c = code_of(usage);
++	if (!c) return 1;
++	if (down) held[c >> 3] |= (uint8_t)(1u << (c & 7));
++	else {
++		if (!(held[c >> 3] & (1u << (c & 7)))) return 1;	/* it went down elsewhere */
++		held[c >> 3] &= (uint8_t)~(1u << (c & 7));
++	}
++	put(0, EV_KEY, c, down ? 1 : 0);
++	put(0, EV_SYN, 0, 0);
++	return 1;
++}
++
++/* where the pointer is, in pixels, and the buttons (bit 0 the left,
++   1 the right, 2 the middle, as a USB mouse has them) */
++void vinput_mouse(int x, int y, int buttons)
++{
++	static const uint16_t btn[3] = { BTN_LEFT, BTN_RIGHT, BTN_MIDDLE };
++	int i, any = 0;
++
++	/* (the USB controller keeps the pointer within the picture) */
++	if ((uint16_t)x != m_x) { m_x = (uint16_t)x; put(1, EV_ABS, 0, (uint32_t)x); any = 1; }
++	if ((uint16_t)y != m_y) { m_y = (uint16_t)y; put(1, EV_ABS, 1, (uint32_t)y); any = 1; }
++	for (i = 0; i < 3; i++)
++		if ((buttons ^ m_btn) & (1 << i)) { put(1, EV_KEY, btn[i], (buttons >> i) & 1); any = 1; }
++	m_btn = (uint8_t)(buttons & 7);
++	if (any) put(1, EV_SYN, 0, 0);
++}
++
++/* the graphics screen is chosen, or a terminal again: what the host
++   thinks is held down is let go */
++void vinput_show(int on)
++{
++	unsigned c;
++
++	if (on == gfx) return;
++	if (!on) {
++		for (c = 0; c < 128; c++)
++			if (held[c >> 3] & (1u << (c & 7))) {
++				held[c >> 3] &= (uint8_t)~(1u << (c & 7));
++				put(0, EV_KEY, c, 0);
++				put(0, EV_SYN, 0, 0);
++			}
++		if (m_btn) vinput_mouse(m_x, m_y, 0);
++	}
++	gfx = (uint8_t)on;
++	/* the screen: the framebuffer, or the terminals (k_text.v's GRAPHICS;
++	   without a framebuffer, FB=0, nothing changes) */
++	*(volatile uint32_t *)0x10020020 = (uint32_t)on;
++	if (on) { mouse_gone(); hud_note("Graphics"); }
++}
++
++/* ------------------------------------------------------------------
++ * the queues
++ * ------------------------------------------------------------------ */
++
++static void lights(void)
++{
++	struct vq *q = &kbd_dev.dev.q[1];
++	const struct vdesc *d;
++	static uint8_t leds;
++	int head;
++
++	while ((head = vq_take(q)) >= 0) {
++		d = vq_desc(q, (unsigned)head);
++		if (d && d->len >= 8) {
++			const volatile uint16_t *e = (const volatile uint16_t *)d->addr;
++			/* Linux's lights, 0 Num, 1 Caps, 2 Scroll, are the keyboard's own bits */
++			if (e[0] == EV_LED && e[1] < 3) {
++				leds &= (uint8_t)~(1u << e[1]);
++				if (e[2] | e[3]) leds |= (uint8_t)(1u << e[1]);
++				z_usbh_kbd_leds(leds);
++			}
++		}
++		vq_done(&kbd_dev.dev, q, (unsigned)head, 0);
++	}
++}
++
++void vinput_poll(void)
++{
++	struct vinput *v;
++	const struct vdesc *d;
++	int head;
++
++	/* (the pointer's status queue is never looked at: it has no lights) */
++	if (kbd_dev.dev.status & 4) lights();
++
++	while (ev_out != ev_in) {
++		v = (evq[ev_out].tc & EV_MOUSE) ? &mouse_dev : &kbd_dev;
++		if (v->dev.status & 4) {
++			head = vq_take(&v->dev.q[0]);
++			if (head < 0) return;			/* no buffer: it waits */
++			d = vq_desc(&v->dev.q[0], (unsigned)head);
++			if (d && (d->flags & VD_WRITE) && d->len >= 8) {
++				volatile uint16_t *e = (volatile uint16_t *)d->addr;
++				e[0] = (evq[ev_out].tc >> 10) & 31;
++				e[1] = evq[ev_out].tc & 0x3ff;
++				*(volatile uint32_t *)(d->addr + 4) = evq[ev_out].value;
++				vq_done(&v->dev, &v->dev.q[0], (unsigned)head, 8);
++			} else
++				vq_done(&v->dev, &v->dev.q[0], (unsigned)head, 0);
++		}
++		/* (a device nobody drives: its events are dropped) */
++		ev_out = (uint8_t)((ev_out + 1) % EVQ);
++	}
++}
++
++static void one(struct vinput *v, int slot, int is_mouse)
++{
++	v->is_mouse = (uint8_t)is_mouse;
++	v->dev.id = VIRTIO_ID_INPUT;
++	v->dev.feat = 0;
++	v->dev.nq = 2;
++	v->dev.qmax = 64;
++	v->dev.cfg_read = cfg_read;
++	v->dev.cfg_write = cfg_write;
++	v->dev.reset = dev_reset;
++	virtio_add(&v->dev, slot);
++}
++
++void vinput_init(void)
++{
++	one(&kbd_dev, 2, 0);
++	one(&mouse_dev, 3, 1);
++}
+diff --git a/soc/fw/iop/virtio.c b/soc/fw/iop/virtio.c
+index 4ced99c..8289a94 100644
+--- a/soc/fw/iop/virtio.c
++++ b/soc/fw/iop/virtio.c
+@@ -33,6 +33,7 @@ static uint32_t reg_read(struct vdev *d, uint32_t off)
+ {
+ 	struct vq *q = d->qsel < d->nq ? &d->q[d->qsel] : 0;
+ 	if (off >= 0x100) {
++		if (d->cfg_read) return d->cfg_read(d, off - 0x100);
+ 		off = (off - 0x100) >> 2;
+ 		return off < d->cfg_words ? d->cfg[off] : 0;
+ 	}
+@@ -49,9 +50,13 @@ static uint32_t reg_read(struct vdev *d, uint32_t off)
+ 	return 0;
+ }
+ 
+-static void reg_write(struct vdev *d, uint32_t off, uint32_t v)
++static void reg_write(struct vdev *d, uint32_t off, uint32_t v, uint32_t sel)
+ {
+ 	struct vq *q = d->qsel < d->nq ? &d->q[d->qsel] : 0;
++	if (off >= 0x100) {
++		if (d->cfg_write) d->cfg_write(d, off - 0x100, v, sel);
++		return;
++	}
+ 	switch (off) {
+ 	case 0x014: d->fsel = (uint8_t)(v > 2 ? 2 : v); return;
+ 	case 0x024: d->dsel = (uint8_t)v; return;
+@@ -84,7 +89,7 @@ void virtio_poll(void)
+ 			dev_reset(d);
+ 			if (d->start) d->start(d);
+ 		}
+-		if (r & 0x40000000u) reg_write(d, r & 0xffc, VWDAT);
++		if (r & 0x40000000u) reg_write(d, r & 0xffc, VWDAT, (r >> 20) & 15);
+ 		else v = reg_read(d, r & 0xffc);
+ 	} else if (!(r & 0x40000000u)) {
+ 		/* an empty slot: a device of no kind */
+diff --git a/soc/fw/iop/virtio.h b/soc/fw/iop/virtio.h
+index 3b02beb..84dc273 100644
+--- a/soc/fw/iop/virtio.h
++++ b/soc/fw/iop/virtio.h
+@@ -28,6 +28,11 @@ struct vdev {
+ 	uint16_t qmax;				/* descriptors a queue of its can have: a power of two */
+ 	const uint32_t *cfg;		/* its configuration, cfg_words words */
+ 	uint8_t  cfg_words;
++	/* ...or, for a device whose configuration answers what is written
++	   to it (vinput.c): the word at off, and a write of the byte lanes
++	   in sel (bit 0 the lowest byte) */
++	uint32_t (*cfg_read)(struct vdev *d, uint32_t off);
++	void (*cfg_write)(struct vdev *d, uint32_t off, uint32_t v, uint32_t sel);
+ 	void (*start)(struct vdev *d);		/* the host looks at the slot for the first time */
+ 	void (*reset)(struct vdev *d);
+ 	struct vq q[VQ_N];
+@@ -62,4 +67,8 @@ void vblk_poll(void);
+ void vnet_init(void);
+ void vnet_poll(void);
+ 
++/* vinput.c (INPUT): the USB keyboard and mouse as devices of the host's */
++void vinput_init(void);
++void vinput_poll(void);
++
+ #endif
+diff --git a/soc/fw/kboot/Makefile b/soc/fw/kboot/Makefile
+index dddd540..41b4237 100644
+--- a/soc/fw/kboot/Makefile
++++ b/soc/fw/kboot/Makefile
+@@ -83,6 +83,18 @@ hosttest: hosttest.c sdboot.c
+ 	@cp $(T)/fat32-1.img $(T)/both.img && printf '{ "y": "0x80200000" }\n' > $(T)/boot64.json && \
+ 		MTOOLS_SKIP_CHECK=1 mcopy -i $(T)/both.img@@1M $(T)/boot64.json ::/sys/linux/ && \
+ 		$(T)/hosttest $(T)/both.img boot64.json | grep -q "^found: boot64.json, 22 bytes" && echo "boot64.json: ok"
++	@# /sys/boot.txt names another directory of /sys: its boot.json is the
++	@# one found (23 bytes, not linux's 22), and one that is not there is said
++	@cp $(T)/fat32-1.img $(T)/plan9.img && printf '{ "9k": "0x80200000" }\n' > $(T)/boot9.json && \
++		printf 'plan9\n' > $(T)/boot.txt && \
++		MTOOLS_SKIP_CHECK=1 mmd -i $(T)/plan9.img@@1M ::/sys/plan9 && \
++		MTOOLS_SKIP_CHECK=1 mcopy -i $(T)/plan9.img@@1M $(T)/boot9.json ::/sys/plan9/boot.json && \
++		MTOOLS_SKIP_CHECK=1 mcopy -i $(T)/plan9.img@@1M $(T)/boot.txt ::/sys/boot.txt && \
++		$(T)/hosttest $(T)/plan9.img | grep -q "^found: boot.json, 23 bytes" && \
++		$(T)/hosttest $(T)/plan9.img /sys/linux/boot.json | grep -q "^found: /sys/linux/boot.json, 22 bytes" && \
++		cp $(T)/fat32-1.img $(T)/nosuch.img && printf 'inferno' > $(T)/boot.txt && \
++		MTOOLS_SKIP_CHECK=1 mcopy -i $(T)/nosuch.img@@1M $(T)/boot.txt ::/sys/boot.txt && \
++		$(T)/hosttest $(T)/nosuch.img | grep -q "no /sys/inferno. In /sys:" && echo "boot.txt: ok"
+ 	@for i in nolinux nojson ext; do echo "-- $$i:"; ! $(T)/hosttest $(T)/$$i.img || { echo "hosttest: $$i was booted from"; exit 1; }; done
+ 	@$(T)/hosttest $(T)/nolinux.img | grep -q "no /sys/linux. In /sys:" && \
+ 		$(T)/hosttest $(T)/nojson.img | grep -q "in /sys/linux:.* BOOT.JSN" && \
+diff --git a/soc/fw/kboot/hosttest.c b/soc/fw/kboot/hosttest.c
+index 9d16e24..5a66925 100644
+--- a/soc/fw/kboot/hosttest.c
++++ b/soc/fw/kboot/hosttest.c
+@@ -33,7 +33,7 @@ int main(int argc, char **argv) {
+ 	uint32_t clu, size;
+ 	const char *path = argc > 2 ? argv[2] : "boot.json";
+ 	if (argc < 2 || !(img = fopen(argv[1], "rb"))) { fprintf(stderr, "hosttest <image> [<path>]\n"); return 2; }
+-	if (fat_mount() && fat_open(path, (int)strlen(path), &clu, &size)) {
++	if (fat_mount() && (os_choose(), fat_open(path, (int)strlen(path), &clu, &size))) {
+ 		say_fs();
+ 		printf("found: %s, %u bytes, cluster %u\n", path, size, clu);
+ 		return 0;
+diff --git a/soc/fw/kboot/sdboot.c b/soc/fw/kboot/sdboot.c
+index 00dd69f..41adb37 100644
+--- a/soc/fw/kboot/sdboot.c
++++ b/soc/fw/kboot/sdboot.c
+@@ -21,7 +21,15 @@
+  * either CPU, each from the files its own list names (they need other
+  * names where both lists would say Image or fw_jump.bin).
+  *
+- * A name is a file in /sys/linux, or with a slash in front a path
++ * /sys/linux is where a card's files are unless the card says
++ * otherwise: /sys/boot.txt, if it is there, names another directory of
++ * /sys in its first word ("plan9": then /sys/plan9/boot.json is read,
++ * and the names in it are files of /sys/plan9). So a card can hold more
++ * than one system, each in its own directory, and which one starts is
++ * one word in a file; a list can still name another's file by its path
++ * ("/sys/linux/fw_jump.bin").
++ *
++ * A name is a file in that directory, or with a slash in front a path
+  * from the card's root: so a card that also boots the LiteX SOC keeps
+  * one Image and one rootfs.cpio in its root, beside LiteX's own
+  * /boot.json, and the rest of ours stays out of the way. Then the
+@@ -286,14 +294,18 @@ static int fat_find(uint32_t dir, const char *name, int n, uint32_t *clu, uint32
+ 	}
+ }
+ 
+-/* a path from the root, or a name in /sys/linux */
++/* the directory of /sys the card's files are in (/sys/boot.txt) */
++static char os_dir[16] = "linux";
++static uint8_t os_len = 5;
++
++/* a path from the root, or a name in that directory */
+ static int fat_open(const char *path, int n, uint32_t *clu, uint32_t *size) {
+ 	uint32_t dir = 0;
+ 	int i;
+ 	if (n && path[0] == '/') { path++; n--; }
+ 	else {
+ 		if (!fat_find(0, "sys", 3, &dir, size)) return 0;
+-		if (!fat_find(dir, "linux", 5, &dir, size)) return 0;
++		if (!fat_find(dir, os_dir, os_len, &dir, size)) return 0;
+ 	}
+ 	for (;;) {
+ 		for (i = 0; i < n && path[i] != '/'; i++) ;
+@@ -319,6 +331,18 @@ static int fat_load(uint32_t clu, uint32_t size, uint32_t *to) {
+ 
+ static uint32_t js[128];
+ 
++/* which system: the first word of /sys/boot.txt, if the card has one */
++static void os_choose(void) {
++	uint32_t clu, size;
++	int n;
++	if (fat_open("/sys/boot.txt", 13, &clu, &size) && sd_read(v_data + (clu - 2) * v_spc, js)) {
++		for (n = 0; n < 15 && n < (int)size && ((const char *)js)[n] > ' '; n++)
++			os_dir[n] = ((const char *)js)[n];
++		os_dir[n] = 0;
++		os_len = (uint8_t)n;
++	}
++}
++
+ static int sd_boot(void) {
+ 	uint32_t clu, size, dtb = DTB_ADDR, adr, entry = MEM_MAIN;
+ 	const char *p, *name, *end;
+@@ -332,20 +356,24 @@ static int sd_boot(void) {
+ #endif
+ 		return 0;
+ 	}
++	os_choose();
+ #if __riscv_xlen == 64 || defined(SD_BOOT64)
+ 	if (fat_open("boot64.json", 11, &clu, &size)) print("sd: boot64.json\n");
+ 	else
+ #endif
+ 	if (!fat_open("boot.json", 9, &clu, &size)) {
+-		print("sd: no /sys/linux/boot.json\n");
+-#ifdef SD_SAYS
++#ifndef SD_SAYS
++		print("sd: no boot.json\n");		/* (8 KB of boot memory: no room to say where) */
++#else
++		print("sd: no boot.json in /sys/"); print(os_dir); print("\n");
+ 		/* how far it got, and what is there instead */
+ 		{
+ 			uint32_t d1 = 0, d2 = 0;
+ 			int a = fat_find(0, "sys", 3, &d1, &size);
+-			int b = a && fat_find(d1, "linux", 5, &d2, &size);
++			int b = a && fat_find(d1, os_dir, os_len, &d2, &size);
+ 			say_fs();
+-			print(!a ? "sd: no /sys. In /:" : !b ? "sd: no /sys/linux. In /sys:" : "sd: in /sys/linux:");
++			if (!a) print("sd: no /sys. In /:");
++			else { print(b ? "sd: in /sys/" : "sd: no /sys/"); print(os_dir); print(b ? ":" : ". In /sys:"); }
+ 			f_list = 1;
+ 			fat_find(!a ? 0 : !b ? d1 : d2, "", 0, &clu, &size);
+ 			f_list = 0;
+diff --git a/soc/rtl/cpu/kakao32/kakao32_decode.v b/soc/rtl/cpu/kakao32/kakao32_decode.v
+index 0a35f35..d061a6b 100644
+--- a/soc/rtl/cpu/kakao32/kakao32_decode.v
++++ b/soc/rtl/cpu/kakao32/kakao32_decode.v
+@@ -111,7 +111,10 @@ module kakao32_decode #(
+ 	assign is_store  = (opcode == 7'b0100011);
+ 	assign is_opimm  = (opcode == 7'b0010011);
+ 	assign is_op     = (opcode == 7'b0110011);
+-	assign is_fence  = (opcode == 7'b0001111);
++	// fence (funct3 000) and fence.i (001). The rest of MISC-MEM is not
++	// ours: 010 is cbo.* (Zicbom, Zicboz), and a kernel that tries one to
++	// see whether it is there has to be told that it is not
++	assign is_fence  = (opcode == 7'b0001111) && (funct3[2:1] == 2'b00);
+ 	assign is_system = (opcode == 7'b1110011);
+ 	assign is_custom = (opcode == 7'b0001011);
+ 
+diff --git a/soc/rtl/cpu/kakao64/kakao64_decode.v b/soc/rtl/cpu/kakao64/kakao64_decode.v
+index 507811e..f5908d1 100644
+--- a/soc/rtl/cpu/kakao64/kakao64_decode.v
++++ b/soc/rtl/cpu/kakao64/kakao64_decode.v
+@@ -114,7 +114,10 @@ module kakao64_decode #(
+ 	assign is_opimm  = (opcode == 7'b0010011) || (opcode == 7'b0011011);
+ 	assign is_op     = (opcode == 7'b0110011) || (opcode == 7'b0111011);
+ 	assign is_w      = opcode[3] && (is_op || is_opimm);
+-	assign is_fence  = (opcode == 7'b0001111);
++	// fence (funct3 000) and fence.i (001). The rest of MISC-MEM is not
++	// ours: 010 is cbo.* (Zicbom, Zicboz), and a kernel that tries one to
++	// see whether it is there has to be told that it is not
++	assign is_fence  = (opcode == 7'b0001111) && (funct3[2:1] == 2'b00);
+ 	assign is_system = (opcode == 7'b1110011);
+ 	assign is_custom = (opcode == 7'b0001011);
+ 
+diff --git a/soc/rtl/k_cache.v b/soc/rtl/k_cache.v
+index 1a6641c..92c5100 100644
+--- a/soc/rtl/k_cache.v
++++ b/soc/rtl/k_cache.v
+@@ -61,7 +61,16 @@
+ 
+ module k_cache #(
+ 	parameter I_KB = 16,
+-	parameter D_KB = 16
++	parameter D_KB = 16,
++	// A framebuffer's window in main memory: the 4 MB whose address
++	// bits 28..22 are FB_AT are not cached. What the CPU stores there
++	// is in memory at once, where the scan-out (k_fb.v) reads it; left
++	// in the data cache it would reach the screen when the line was
++	// next needed for something else, or never. A load from there is a
++	// read of memory each time. (The second port has no business in
++	// the window and is not looked at.)
++	parameter FB = 0,
++	parameter [6:0] FB_AT = 7'h7f
+ ) (
+ 	input         clk,
+ 	input         rst,
+@@ -178,7 +187,8 @@ module k_cache #(
+ 	// the request, and what the arrays say about it
+ 	// ------------------------------------------------------------
+ 
+-	wire c_main = (c_adr[31:29] == 3'b100);
++	wire c_fbw  = (FB != 0) && (c_adr[28:22] == FB_AT);
++	wire c_main = (c_adr[31:29] == 3'b100) && !c_fbw;
+ 	wire c_cfg  = (c_adr[31:8] == 24'h030001);
+ 	wire r_main = (r_adr[31:29] == 3'b100);
+ 
+diff --git a/soc/rtl/k_fb.v b/soc/rtl/k_fb.v
+new file mode 100644
+index 0000000..cf455e6
+--- /dev/null
++++ b/soc/rtl/k_fb.v
+@@ -0,0 +1,214 @@
++/*
++ * k_fb -- the framebuffer's scan-out: the picture a host draws in main
++ * memory, read out of it as the text mode (k_text.v) draws the screen,
++ * for k_text to show under its overlay in place of a terminal.
++ *
++ * The framebuffer is W by H pixels, row after row from the top, at
++ * BASE in main memory (a block's number: memory is read 16 bytes, one
++ * DDR3 burst, at a time). A pixel is 16 bits, r5g6b5 (red the top five
++ * bits of a little-endian word: Linux's "r5g6b5", Plan 9's RGB16), or
++ * with `deep8` 8 bits, a colour of the 256 in the palette here.
++ *
++ * Two clocks. On clk the blocks are fetched, in order, through
++ *
++ *   m_stb, m_adr      a block is asked for (held until m_ack)
++ *   m_ack, m_dat      one cycle: its 128 bits, the lowest address in
++ *                     the lowest bits
++ *
++ * into a queue of eight blocks; on pclk they are taken out of it and
++ * shifted out a pixel at a time, where k_text's counters (hc, vc: 640
++ * by 480 visible of 800 by 525) say a pixel is visible. rgb is the
++ * colour of the pixel at (hc, vc) two cycles later, which is when
++ * k_text chooses between it and its own.
++ *
++ * Whoever answers m_stb has to answer it first: eight pixels of 16
++ * bits last fifteen cycles of a 48 MHz clk, a block takes ten to
++ * fetch, and the queue is what absorbs an access of the CPU's or a
++ * refresh that was under way. If the queue runs dry all the same, the
++ * last block is shown again and the rest of that frame is out of step;
++ * the next frame starts afresh, both sides from nothing, at the
++ * beginning of vertical blanking (the pixel side says so across the
++ * clocks, and nothing is read for the forty-five lines after it).
++ *
++ * `show` is off: nothing is fetched, and rgb is black. Memory is then
++ * the CPU's alone, which is the point of asking: a terminal on the
++ * screen costs a host nothing.
++ *
++ * The palette is written on clk (pal_we, pal_a, pal_d: 0x00rrggbb) and
++ * read on pclk; a colour changed while it is on the screen may show
++ * wrongly for a pixel.
++ */
++
++module k_fb #(
++	parameter [24:0] BASE = 25'd0,	// the framebuffer's first block
++	parameter W = 640,
++	parameter H = 480,
++	parameter H_TOT = 800,
++	parameter V_TOT = 525
++) (
++	input          clk,
++	input          rst,
++	input          show,			// (clk) the framebuffer is on the screen
++	input          deep8,			// (clk) 8 bits a pixel, through the palette
++
++	output reg         m_stb,
++	output reg  [24:0] m_adr,
++	input              m_ack,
++	input      [127:0] m_dat,
++
++	input          pal_we,
++	input    [7:0] pal_a,
++	input   [23:0] pal_d,
++
++	input          pclk,
++	input   [10:0] hc,
++	input   [10:0] vc,
++	output reg [23:0] rgb,
++	output reg [15:0] underruns		// (pclk) blocks that were not there in time
++);
++
++	// ------------------------------------------------------------
++	// the queue: eight blocks, written on clk and read on pclk
++	// ------------------------------------------------------------
++
++	reg [127:0] q [0:7];
++	reg   [3:0] wp, wp_g;			// clk: the next to write, and as a Gray code
++	reg   [3:0] rp, rp_g;			// pclk: the next to read
++	reg   [3:0] rp_s0, rp_s1;		// rp_g on clk
++	reg   [3:0] wp_s0, wp_s1;		// wp_g on pclk
++
++	function [3:0] gray(input [3:0] b);
++		gray = b ^ (b >> 1);
++	endfunction
++
++	wire [3:0] wp_n  = wp + 4'd1;
++	wire       full  = (wp_g == { ~rp_s1[3:2], rp_s1[1:0] });
++	wire       empty = (rp_g == wp_s1);
++
++	// ------------------------------------------------------------
++	// clk: the fetching
++	// ------------------------------------------------------------
++
++	// blocks in a frame
++	localparam [24:0] N16 = (W * H) / 8;
++	localparam [24:0] N8  = (W * H) / 16;
++
++	reg        ft_p;				// pclk: turned over at the start of each frame
++	reg  [2:0] ft_s;				// ...and here
++	reg [24:0] left;				// blocks of this frame still to fetch
++	reg  [4:0] hold;				// after a frame's start: nothing, while the queue empties
++	reg        drop;				// the block on its way is the last frame's
++	reg        show_s, deep_s;
++
++	always @(posedge clk) begin
++		rp_s0 <= rp_g; rp_s1 <= rp_s0;
++		ft_s <= { ft_s[1:0], ft_p };
++		if (rst) begin
++			m_stb <= 1'b0;
++			wp <= 4'd0; wp_g <= 4'd0;
++			left <= 25'd0;
++			hold <= 5'd0;
++			drop <= 1'b0;
++			show_s <= 1'b0; deep_s <= 1'b0;
++		end else begin
++			if (hold != 5'd0) hold <= hold - 5'd1;
++
++			if (m_stb && m_ack) begin
++				m_stb <= 1'b0;
++				drop <= 1'b0;
++				if (!drop) begin
++					q[wp[2:0]] <= m_dat;
++					wp <= wp_n; wp_g <= gray(wp_n);
++					m_adr <= m_adr + 25'd1;
++					left <= left - 25'd1;
++				end
++			end else if (!m_stb && hold == 5'd0 && left != 25'd0 && !full)
++				m_stb <= 1'b1;
++
++			// a frame begins: from the framebuffer's first block again,
++			// with the queue empty (the pixel side has emptied its end);
++			// what the frame is, is settled here for all of it
++			if (ft_s[2] != ft_s[1]) begin
++				if (m_stb && !m_ack) drop <= 1'b1;
++				wp <= 4'd0; wp_g <= 4'd0;
++				m_adr <= BASE;
++				show_s <= show; deep_s <= deep8;
++				left <= !show ? 25'd0 : deep8 ? N8 : N16;
++				hold <= 5'd16;
++			end
++		end
++	end
++
++	// ------------------------------------------------------------
++	// the palette
++	// ------------------------------------------------------------
++
++	reg [23:0] pal [0:255];
++	always @(posedge clk) if (pal_we) pal[pal_a] <= pal_d;
++
++	// ------------------------------------------------------------
++	// pclk: the pixels
++	// ------------------------------------------------------------
++
++	reg [127:0] cur, nxt;			// the block being shown, and the one after it
++	reg         cur_v, nxt_v;
++	reg   [3:0] idx;				// the pixel of cur that is next
++	reg         show_p0, show_p, deep_p0, deep_p;
++	reg  [15:0] pix;
++	reg         pix_v;
++
++	wire        vis   = (hc < W) && (vc < H);
++	wire        fs    = (hc == 11'd0) && (vc == H);
++	wire  [3:0] last  = deep_p ? 4'd15 : 4'd7;
++	wire [15:0] pix16 = cur[{ idx[2:0], 4'b0000 } +: 16];
++	wire  [7:0] pix8  = cur[{ idx, 3'b000 } +: 8];
++	wire [23:0] pal_q = pal[pix[7:0]];
++
++	always @(posedge pclk) begin
++		wp_s0 <= wp_g; wp_s1 <= wp_s0;
++		show_p0 <= show_s; deep_p0 <= deep_s;
++
++		if (fs) begin
++			// the frame is over: both ends of the queue start again
++			ft_p <= !ft_p;
++			rp <= 4'd0; rp_g <= 4'd0;
++			cur_v <= 1'b0; nxt_v <= 1'b0;
++			idx <= 4'd0;
++			show_p <= show_p0; deep_p <= deep_p0;
++		end else begin
++			// the block after this one, as soon as there is one
++			if (!nxt_v && !empty && !(vis && idx == last)) begin
++				nxt <= q[rp[2:0]];
++				nxt_v <= 1'b1;
++				rp <= rp + 4'd1; rp_g <= gray(rp + 4'd1);
++			end
++			if (!cur_v && nxt_v && !vis) begin
++				cur <= nxt; cur_v <= 1'b1; nxt_v <= 1'b0;
++			end
++			if (vis) begin
++				if (idx == last) begin
++					idx <= 4'd0;
++					if (nxt_v) begin cur <= nxt; nxt_v <= 1'b0; end
++					else if (show_p) underruns <= underruns + 16'd1;
++				end else
++					idx <= idx + 4'd1;
++			end
++		end
++
++		// one: the pixel's bits; two: its colour
++		pix   <= deep_p ? { 8'd0, pix8 } : pix16;
++		pix_v <= vis && show_p && cur_v;
++		rgb   <= !pix_v ? 24'd0 :
++			deep_p ? pal_q :
++			{ pix[15:11], pix[15:13], pix[10:5], pix[10:9], pix[4:0], pix[4:2] };
++
++	end
++
++	initial begin
++		ft_p = 1'b0; ft_s = 3'd0;
++		rp = 4'd0; rp_g = 4'd0;
++		cur_v = 1'b0; nxt_v = 1'b0; idx = 4'd0;
++		underruns = 16'd0;
++	end
++
++endmodule
+diff --git a/soc/rtl/k_text.v b/soc/rtl/k_text.v
+index 1bfc42b..658ef0b 100644
+--- a/soc/rtl/k_text.v
++++ b/soc/rtl/k_text.v
+@@ -29,6 +29,9 @@
+  *                        are shown so too: what the mouse has selected;
+  *                        [31] they are (a cell that is both shows as it
+  *                        is, so the pointer is seen within a selection)
++ *   0x20020  GRAPHICS    (with FB) [0] the framebuffer is shown where a
++ *                        terminal would be: under the overlay, and
++ *                        with no cursor, pointer or selection of ours
+  *   0x20080 .. 0x200fc   the colours, a word each, 0x00rrggbb: sixteen
+  *                        for the cells, then sixteen for the overlay
+  *                        (write only; the PC's after reset)
+@@ -63,7 +66,9 @@
+ 
+ module k_text #(
+ 	parameter TERMS    = 1,
+-	parameter FONT_HEX = "k_font.hex"
++	parameter FONT_HEX = "k_font.hex",
++	parameter FB       = 0,			// 1: a framebuffer's picture (k_fb.v) can take a terminal's place
++	parameter FB_SHOW  = 0			// ...and does so from reset (a simulation without a keyboard)
+ ) (
+ 	input         clk,
+ 	input         rst,
+@@ -84,7 +89,11 @@ module k_text #(
+ 	output reg    vsync,
+ 	output reg    blank,
+ 	output [10:0] hc,				// where the picture is, for whoever
+-	output [10:0] vc				// needs it (not delayed as the pixels are)
++	output [10:0] vc,				// needs it (not delayed as the pixels are)
++	// the framebuffer (FB): whether it is shown (on clk), and its
++	// pixel for the position hc, vc had two cycles ago
++	output        fb_show,
++	input  [23:0] fb_rgb
+ );
+ 
+ 	localparam NCELL = TERMS * 2400;
+@@ -102,9 +111,12 @@ module k_text #(
+ 	reg [14:0] cursor, start, base, wend;
+ 	reg [15:0] pointer;
+ 	reg [31:0] select;
++	reg        gfx;					// the framebuffer is shown
++	assign fb_show = (FB != 0) && gfx;
+ 
+ 	wire s_cell = (adr_i[17] == 1'b0);
+-	wire s_reg  = (adr_i[17:16] == 2'b10) && !adr_i[7];
++	wire s_reg  = (adr_i[17:16] == 2'b10) && !adr_i[7] && !adr_i[5];
++	wire s_gfx  = (adr_i[17:16] == 2'b10) && !adr_i[7] && adr_i[5];
+ 	wire s_pal  = (adr_i[17:16] == 2'b10) && adr_i[7];
+ 	wire s_ovl  = (adr_i[17:16] == 2'b11);
+ 	wire req    = stb_i && !ack_o;
+@@ -159,6 +171,11 @@ module k_text #(
+ 			3'd6: rd_reg <= { 16'd0, pointer };
+ 			3'd7: rd_reg <= select;
+ 		endcase
++		if (s_gfx) rd_reg <= { 31'd0, fb_show };
++		if (rst)
++			gfx <= (FB_SHOW != 0);
++		else if (req && we_i && s_gfx && sel_i[0])
++			gfx <= dat_i[0];
+ 		if (rst) begin
+ 			ctrl <= 6'b000000;
+ 			cursor <= 15'd0;
+@@ -198,6 +215,7 @@ module k_text #(
+ 	reg [14:0] cursor_m, cursor_p, start_m, start_p, base_m, base_p, wend_m, wend_p;
+ 	reg  [5:0] blink;
+ 	reg [15:0] pointer_m, pointer_p;
++	reg        gfx_m, gfx_p;
+ 	reg [31:0] select_m, select_p;
+ 
+ 	// where the row of cells being drawn begins, in the screen and in
+@@ -222,8 +240,10 @@ module k_text #(
+ 
+ 		ctrl_m <= ctrl; cursor_m <= cursor; start_m <= start; base_m <= base; wend_m <= wend;
+ 		pointer_m <= pointer; select_m <= select;
++		gfx_m <= fb_show;
+ 		if (h == 0 && v == V_VIS) begin
+ 			pointer_p <= pointer_m; select_p <= select_m;
++			gfx_p <= gfx_m;
+ 			ctrl_p <= ctrl_m; cursor_p <= cursor_m; start_p <= start_m;
+ 			base_p <= base_m; wend_p <= wend_m;
+ 			frames_p <= frames_p + 8'd1;
+@@ -262,6 +282,7 @@ module k_text #(
+ 	wire dot     = font_q[3'd7 - px2] ^ cur_on ^ inv2;
+ 	wire [3:0] col = dot ? attr2[3:0] : attr2[7:4];
+ 	wire [23:0] rgb = pal[{ o2, col }];
++	wire [23:0] out = (gfx_p && !o2) ? fb_rgb : rgb;
+ 
+ 	always @(posedge pclk) begin
+ 		// 0: where we are
+@@ -284,9 +305,10 @@ module k_text #(
+ 		vis1 <= vis0; hs1 <= hs0; vs1 <= vs0;
+ 
+ 		// 2: the row of the character is here
+-		red   <= (vis1 && ctrl_p[0]) ? rgb[23:16] : 8'd0;
+-		green <= (vis1 && ctrl_p[0]) ? rgb[15:8] : 8'd0;
+-		blue  <= (vis1 && ctrl_p[0]) ? rgb[7:0] : 8'd0;
++		// (the framebuffer's pixel where the overlay has no cell)
++		red   <= (vis1 && ctrl_p[0]) ? out[23:16] : 8'd0;
++		green <= (vis1 && ctrl_p[0]) ? out[15:8] : 8'd0;
++		blue  <= (vis1 && ctrl_p[0]) ? out[7:0] : 8'd0;
+ 		blank <= !vis1;
+ 		hsync <= hs1;
+ 		vsync <= vs1;
+diff --git a/soc/rtl/kakao_soc.v b/soc/rtl/kakao_soc.v
+index d860154..299df95 100644
+--- a/soc/rtl/kakao_soc.v
++++ b/soc/rtl/kakao_soc.v
+@@ -24,12 +24,25 @@
+  *   0xf000_1000   UART 0 again, through a LiteX UART's registers (with
+  *                 LITEUART): the prebuilt Kakao kernel has no other
+  *                 console driver
++ *   0x0300_1000   with FB, the framebuffer's registers: word 0 bit 0 is
++ *                 8 bits a pixel (16 without it), bits 31..16 the blocks
++ *                 that came too late for the screen, counted; from
++ *                 0x0300_1400 the 256 colours of the 8 bit picture, a
++ *                 word each, 0x00rrggbb (write only)
+  *   0x8000_0000   main memory, up to 512 MB
+  *   anything else the board's own devices (ext_*)
+  *
+  * With TERMINAL, the I/O processor and the text mode (k_iop.v,
+  * k_text.v): the terminal, on UART 0's characters.
+  *
++ * With FB (and TERMINAL, and KCACHE), a framebuffer: 4 MB of main
++ * memory, the ones whose address bits 28..22 are FB_AT, are not cached
++ * (k_cache.v), and 640 by 480 pixels from their beginning are read out
++ * as the screen is drawn (k_fb.v) and shown where a terminal would be
++ * when the I/O processor says so (k_text.v's GRAPHICS). The memory
++ * behind mem_* then has a second port, fb_*, on which a whole block of
++ * 16 bytes is read at once, and which it answers before mem_*.
++ *
+  *   0x1000_1000   the virtio slots, VIRTIO of them, 4 KB each (k_virtio.v;
+  *                 with TERMINAL: the I/O processor is the devices):
+  *                 PLIC sources 12 and up
+@@ -67,6 +80,9 @@ module kakao_soc #(
+ 	parameter VIRTIO    = 0,		// with KCACHE: virtio slots, 0..4. Without TERMINAL the
+ 								// I/O processor is there for them alone (IOP_HEX is then
+ 								// fw/iop's iop-headless.hex, and IOP_WORDS its size)
++	parameter FB        = 0,		// 1: with TERMINAL and KCACHE, a framebuffer in main memory
++	parameter [6:0] FB_AT = 7'h7f,	// ...its 4 MB: address bits 28..22 (0x7f: the top of 512 MB)
++	parameter FB_SHOW   = 0,		// ...shown from reset (a simulation without a keyboard)
+ 	parameter USB_T_MS  = 48000,	// clock cycles a millisecond (the USB core needs 48 MHz)
+ 	parameter FONT_HEX  = "k_font.hex"
+ ) (
+@@ -82,6 +98,13 @@ module kakao_soc #(
+ 	output        mem_stb_o,
+ 	input         mem_ack_i,
+ 
++	// main memory's second port (FB): a block of 16 bytes read at once,
++	// the lowest address in the lowest bits; fb_stb is held until fb_ack
++	output        fb_stb_o,
++	output [24:0] fb_adr_o,
++	input         fb_ack_i,
++	input [127:0] fb_dat_i,
++
+ 	// main memory's registers
+ 	output  [1:0] reg_adr_o,
+ 	output [31:0] reg_dat_o,
+@@ -232,7 +255,8 @@ module kakao_soc #(
+ 		// Kakao's own, with the CPU's addresses as they are
+ 		wire [31:0] a;
+ 		k_cache #(
+-			.I_KB(I_KB), .D_KB(D_KB)
++			.I_KB(I_KB), .D_KB(D_KB),
++			.FB(FB), .FB_AT(FB_AT)
+ 		) cache_i (
+ 			.clk(clk), .rst(rst),
+ 			.c_req(c_req), .c_adr(c_adr), .c_we(c_we), .c_sel(c_sel),
+@@ -304,7 +328,8 @@ module kakao_soc #(
+ 	wire s_lxu   = LITEUART && (m_adr[31:8] == 24'hf00010);
+ 	wire s_vcon  = (TERMINAL != 0) && (TERMS > 1) && (m_adr[31:12] == 20'h10000) && (m_adr[11:8] != 4'd0);
+ 	wire s_virt  = (VIRTIO != 0) && (m_adr[31:16] == 16'h1000) && (m_adr[15:12] != 4'd0);
+-	wire s_ext   = !(s_mem || s_rom || s_test || s_clint || s_mreg || s_uart0 || s_vcon || s_lxu || s_plic || s_virt);
++	wire s_fbr   = (FB != 0) && (m_adr[31:12] == 20'h03001);
++	wire s_ext   = !(s_mem || s_rom || s_test || s_clint || s_mreg || s_uart0 || s_vcon || s_lxu || s_plic || s_virt || s_fbr);
+ 
+ 	wire stb = m_stb && m_cyc;
+ 
+@@ -355,6 +380,18 @@ module kakao_soc #(
+ 
+ 	wire [31:0] clint_q, uart0_q;
+ 
++	// the framebuffer's registers (FB). The count of late blocks comes
++	// from the pixel clock as it is: it is read for curiosity, and a
++	// value caught in the middle of changing is a wrong number once.
++	reg         fb_deep8;
++	wire [15:0] fb_under;
++	wire [31:0] fbr_q = { fb_under, 15'd0, fb_deep8 };
++	always @(posedge clk) begin
++		if (rst) fb_deep8 <= 1'b0;
++		else if (first && s_fbr && m_we && !m_adr[10] && m_adr[9:2] == 8'd0 && m_sel[0])
++			fb_deep8 <= m_dat_w[0];
++	end
++
+ 	k_clint #(.TICK(CLINT_TICK), .HOLD_HI(CPU64)) clint_i (
+ 		.clk(clk), .rst(rst),
+ 		.req(first && s_clint), .we(m_we), .adr(m_adr[15:2]),
+@@ -506,14 +543,37 @@ module kakao_soc #(
+ 			assign ub_ack = ub_stb;
+ 		end
+ 
+-		k_text #(.TERMS(TERMS + HIST), .FONT_HEX(FONT_HEX)) text_i (
++		wire [10:0] t_hc, t_vc;
++		wire        t_show;
++		wire [23:0] t_fbrgb;
++
++		k_text #(.TERMS(TERMS + HIST), .FONT_HEX(FONT_HEX), .FB(FB), .FB_SHOW(FB_SHOW)) text_i (
+ 			.clk(clk), .rst(rst),
+ 			.adr_i(t_adr), .dat_i(t_dat_w), .dat_o(t_dat_r), .we_i(t_we), .sel_i(t_sel),
+ 			.stb_i(t_stb), .ack_o(t_ack),
+ 			.pclk(pclk), .red(vid_r), .green(vid_g), .blue(vid_b),
+-			.hsync(vid_hsync), .vsync(vid_vsync), .blank(vid_blank), .hc(), .vc()
++			.hsync(vid_hsync), .vsync(vid_vsync), .blank(vid_blank), .hc(t_hc), .vc(t_vc),
++			.fb_show(t_show), .fb_rgb(t_fbrgb)
+ 		);
+ 
++		if (FB != 0) begin : fb
++			wire [15:0] under;
++			k_fb #(.BASE({ FB_AT, 18'd0 })) fb_i (
++				.clk(clk), .rst(rst),
++				.show(t_show), .deep8(fb_deep8),
++				.m_stb(fb_stb_o), .m_adr(fb_adr_o), .m_ack(fb_ack_i), .m_dat(fb_dat_i),
++				.pal_we(first && s_fbr && m_we && m_adr[10]), .pal_a(m_adr[9:2]), .pal_d(m_dat_w[23:0]),
++				.pclk(pclk), .hc(t_hc), .vc(t_vc), .rgb(t_fbrgb),
++				.underruns(under)
++			);
++			assign fb_under = under;
++		end else begin : nofb
++			assign t_fbrgb = 24'd0;
++			assign fb_stb_o = 1'b0;
++			assign fb_adr_o = 25'd0;
++			assign fb_under = 16'd0;
++		end
++
+ 	end else begin : noterm
+ 
+ 		assign con_full = 1'b0;
+@@ -523,6 +583,9 @@ module kakao_soc #(
+ 		assign vcon_irq = 9'd0;
+ 		assign vcon_q = 32'd0;
+ 		assign { vid_r, vid_g, vid_b } = 24'd0;
++		assign fb_stb_o = 1'b0;
++		assign fb_adr_o = 25'd0;
++		assign fb_under = 16'd0;
+ 		assign vid_hsync = 1'b1;
+ 		assign vid_vsync = 1'b1;
+ 		assign vid_blank = 1'b1;
+@@ -598,7 +661,8 @@ module kakao_soc #(
+ 	reg        io_rom;
+ 	always @(posedge clk) begin
+ 		io_rom <= s_rom;
+-		io_q   <= s_clint ? clint_q : s_uart0 ? uart0_q : s_vcon ? vcon_q : s_lxu ? lxu_q : s_plic ? plic_q : 32'd0;
++		io_q   <= s_clint ? clint_q : s_uart0 ? uart0_q : s_vcon ? vcon_q : s_lxu ? lxu_q : s_plic ? plic_q :
++		          s_fbr ? fbr_q : 32'd0;
+ 		if (rst) begin
+ 			io_ack <= 1'b0;
+ 			poweroff_o <= 1'b0;
+diff --git a/soc/rtl/mem/k_ddr3.v b/soc/rtl/mem/k_ddr3.v
+new file mode 100644
+index 0000000..d82eaab
+--- /dev/null
++++ b/soc/rtl/mem/k_ddr3.v
+@@ -0,0 +1,283 @@
++/*
++ * Zeitlos SOC
++ * Copyright (c) 2025 Lone Dynamics Corporation. All rights reserved.
++ *
++ * DDR3 subsystem
++ *
++ * The Kakao SOC's copy (soc/rtl/mem/k_ddr3.v) of Zeitlos's
++ * rtl/mem/ddr3.v, for builds with a framebuffer (FB=1): the same, with
++ * the controller's scan-out port (k_ddr3_ctrl.v, fb_*) brought out.
++ * The PHY and the clocks are Zeitlos's own files.
++ *
++ * Two wishbone ports:
++ *
++ *   memory     the DRAM, at MEM_MAIN
++ *   registers  status and tuning, for the BIOS to train the read path
++ *
++ * and the controller (ddr3_ctrl.v) and PHY (ddr3_phy_ecp5.v) between
++ * them. Clocks come from ddr3_clk.v.
++ *
++ * -- registers, word offsets --
++ *
++ *   0  STATUS  read only
++ *        [31:16] 0xdd30        identifies THIS design; see below
++ *        [7]     pll locked
++ *        [6]     read timeout  sticky: a read the PHY never answered
++ *        [5:4]   burstdet      sticky per lane, cleared by each read
++ *        [3:2]   datavalid     live, per lane
++ *        [1]     PHY ready     DLL locked and the sequence has run
++ *        [0]     init done     DRAM initialised by the controller
++ *
++ *   1  TUNE    read/write, every field used at its full width
++ *        [2:0]   write delay   cycles, WRITE command to write data
++ *        [6:4]   read gate 0   cycles, READ command to gate, lane 0
++ *        [10:8]  read gate 1
++ *        [14:12] rdclksel 0    DQSBUFM read clock phase, lane 0
++ *        [18:16] rdclksel 1
++ *        [23:20] read offset 0 beats into the capture history, lane 0
++ *        [27:24] read offset 1
++ *
++ *   2  CTRL    read/write
++ *        [0]     hold refresh  while training; deferred, not skipped
++ *        [1]     clear status  write 1, self-clearing
++ *        [2]     training writes  writes skip their read; see
++ *                                 ddr3_ctrl.v. Whole blocks only.
++ *        [3]     reads bypass     every read goes to the DRAM, never
++ *                                 the controller's block register
++ *
++ * STATUS is assembled by BIT POSITION, one assignment per field.
++ * Last time a concatenation silently truncated when a field was added,
++ * and a live signal placed inside MAGIC overwrote the build identifier
++ * so the running bitstream reported itself as an older one -- twice.
++ * MAGIC differs from that design's (0xdd1x) so the two cannot be
++ * mistaken for each other on a console.
++ */
++
++`default_nettype none
++
++module k_ddr3 #(
++	parameter ROW_BITS = 15,
++	parameter TRFC_NS = 260,
++	// ddr3_ctrl.v, "write combining": stores into the block register,
++	// a block to the DRAM at a time
++	parameter WCOMBINE = 0
++) (
++	input wire clk_i,
++	input wire rst_i,
++
++	// -- from ddr3_clk -------------------------------------------
++	input wire eclk_i,
++	input wire ddrdel_i,
++	input wire pause_i,
++	input wire phy_rst_i,
++	input wire phy_ready_i,
++	input wire pll_locked_i,
++
++	// -- memory ----------------------------------------------------
++	input wire [26:0] wb_adr_i,
++	input wire [31:0] wb_dat_i,
++	output wire [31:0] wb_dat_o,
++	input wire wb_we_i,
++	input wire [3:0] wb_sel_i,
++	input wire wb_stb_i,
++	input wire wb_cyc_i,
++	output wire wb_ack_o,
++
++	// -- the scan-out port: a block of 16 bytes read at once ---------
++	input wire fb_stb_i,
++	input wire [24:0] fb_adr_i,
++	output wire fb_ack_o,
++	output wire [127:0] fb_dat_o,
++
++	// -- registers -------------------------------------------------
++	input wire [1:0] reg_adr_i,
++	input wire [31:0] reg_dat_i,
++	output reg [31:0] reg_dat_o,
++	input wire reg_we_i,
++	input wire reg_stb_i,
++	input wire reg_cyc_i,
++	output reg reg_ack_o,
++
++	// -- pins ------------------------------------------------------
++	output wire [15:0] ddr3_a,
++	output wire [2:0] ddr3_ba,
++	output wire ddr3_ras_n,
++	output wire ddr3_cas_n,
++	output wire ddr3_we_n,
++	output wire ddr3_cs_n,
++	output wire ddr3_cke,
++	output wire ddr3_odt,
++	output wire ddr3_reset_n,
++	output wire [1:0] ddr3_dm,
++	inout wire [15:0] ddr3_dq,
++	inout wire [1:0] ddr3_dqs_p,
++	output wire ddr3_clk_p
++);
++
++	localparam [15:0] MAGIC = 16'hdd30;
++
++	// Defaults are starting points for training, not answers.
++	localparam [31:0] TUNE_RESET = {
++		4'd0,
++		4'd8,       // [27:24] read offset 1: mid-range
++		4'd8,       // [23:20] read offset 0
++		1'b0, 3'd2, // [18:16] rdclksel 1: LiteX found 2 (+-1) on ML2
++		1'b0, 3'd2, // [14:12] rdclksel 0
++		1'b0, 3'd3, // [10:8]  read gate 1: LiteDRAM's position, CL=6
++		1'b0, 3'd3, // [6:4]   read gate 0
++		1'b0, 3'd3  // [2:0]   write delay: CWL is 3 system cycles
++	};
++
++	reg [31:0] tune;
++
++	// A TUNE write is applied in the middle of a PAUSE of the DQS
++	// buffers, as LiteDRAM does: its PAUSE input is held for as long as
++	// software is adjusting a module's delay, so READCLKSEL never
++	// changes under a running buffer. Changing it live can glitch the
++	// buffer mid-change. The first working scans here showed read
++	// windows one or two phases wide that moved between boots, against
++	// about three on this board under LiteX.
++	//
++	// The register write is not acknowledged until the pause has ended,
++	// so the CPU cannot issue its next DRAM read into a paused buffer.
++	reg [31:0] tune_next;
++	reg [3:0] tune_seq;
++	wire tune_pause = (tune_seq != 4'd0);
++	reg no_refresh;
++	reg wr_noread;
++	reg rdbuf_off;
++	reg sts_clear;
++
++	// -- controller <-> PHY --------------------------------------
++	wire phy_reset_n, phy_cke, phy_odt;
++	wire phy_cs_n, phy_ras_n, phy_cas_n, phy_we_n;
++	wire [15:0] phy_a;
++	wire [2:0] phy_ba;
++	wire phy_wren, phy_rden, phy_rvalid;
++	wire [127:0] phy_wdata, phy_rdata;
++	wire [15:0] phy_wmask;
++
++	wire init_done, rd_timeout;
++	wire [1:0] datavalid, burstdet;
++
++	k_ddr3_ctrl #(
++		.ROW_BITS(ROW_BITS),
++		.TRFC_NS(TRFC_NS),
++		.WCOMBINE(WCOMBINE)
++	) ctrl (
++		.clk_i(clk_i), .rst_i(rst_i),
++		.wb_adr_i(wb_adr_i), .wb_dat_i(wb_dat_i), .wb_dat_o(wb_dat_o),
++		.wb_we_i(wb_we_i), .wb_sel_i(wb_sel_i),
++		.wb_stb_i(wb_stb_i), .wb_cyc_i(wb_cyc_i), .wb_ack_o(wb_ack_o),
++		.fb_stb_i(fb_stb_i), .fb_adr_i(fb_adr_i),
++		.fb_ack_o(fb_ack_o), .fb_dat_o(fb_dat_o),
++		.phy_ready_i(phy_ready_i),
++		.init_done_o(init_done),
++		.rd_timeout_o(rd_timeout),
++		.no_refresh_i(no_refresh),
++		.wr_noread_i(wr_noread),
++		.rdbuf_off_i(rdbuf_off),
++		.phy_reset_n_o(phy_reset_n), .phy_cke_o(phy_cke),
++		.phy_odt_o(phy_odt), .phy_cs_n_o(phy_cs_n),
++		.phy_ras_n_o(phy_ras_n), .phy_cas_n_o(phy_cas_n),
++		.phy_we_n_o(phy_we_n),
++		.phy_a_o(phy_a), .phy_ba_o(phy_ba),
++		.phy_wren_o(phy_wren), .phy_wdata_o(phy_wdata),
++		.phy_wmask_o(phy_wmask),
++		.phy_rden_o(phy_rden),
++		.phy_rvalid_i(phy_rvalid), .phy_rdata_i(phy_rdata)
++	);
++
++	ddr3_phy_ecp5 phy (
++		.clk_i(clk_i), .eclk_i(eclk_i), .rst_i(rst_i),
++		.ddrdel_i(ddrdel_i), .pause_i(pause_i | tune_pause),
++		.phy_rst_i(phy_rst_i),
++
++		.ctl_reset_n_i(phy_reset_n), .ctl_cke_i(phy_cke),
++		.ctl_odt_i(phy_odt), .ctl_cs_n_i(phy_cs_n),
++		.ctl_ras_n_i(phy_ras_n), .ctl_cas_n_i(phy_cas_n),
++		.ctl_we_n_i(phy_we_n),
++		.ctl_a_i(phy_a), .ctl_ba_i(phy_ba),
++		.ctl_wren_i(phy_wren), .ctl_wdata_i(phy_wdata),
++		.ctl_wmask_i(phy_wmask),
++		.ctl_rden_i(phy_rden),
++		.ctl_rvalid_o(phy_rvalid), .ctl_rdata_o(phy_rdata),
++
++		.cfg_wr_delay_i(tune[2:0]),
++		.cfg_rd_gate0_i(tune[6:4]),
++		.cfg_rd_gate1_i(tune[10:8]),
++		.cfg_rdclksel0_i(tune[14:12]),
++		.cfg_rdclksel1_i(tune[18:16]),
++		.cfg_rd_off0_i(tune[23:20]),
++		.cfg_rd_off1_i(tune[27:24]),
++
++		.sts_datavalid_o(datavalid),
++		.sts_burstdet_o(burstdet),
++		.sts_clear_i(sts_clear),
++
++		.ddr3_a(ddr3_a), .ddr3_ba(ddr3_ba),
++		.ddr3_ras_n(ddr3_ras_n), .ddr3_cas_n(ddr3_cas_n),
++		.ddr3_we_n(ddr3_we_n), .ddr3_cs_n(ddr3_cs_n),
++		.ddr3_cke(ddr3_cke), .ddr3_odt(ddr3_odt),
++		.ddr3_reset_n(ddr3_reset_n),
++		.ddr3_dm(ddr3_dm), .ddr3_dq(ddr3_dq),
++		.ddr3_dqs_p(ddr3_dqs_p), .ddr3_clk_p(ddr3_clk_p)
++	);
++
++	// -- STATUS, by position -------------------------------------
++	reg [31:0] status;
++	always @(*) begin
++		status = 32'd0;
++		status[31:16] = MAGIC;
++		status[7]     = pll_locked_i;
++		status[6]     = rd_timeout;
++		status[5:4]   = burstdet;
++		status[3:2]   = datavalid;
++		status[1]     = phy_ready_i;
++		status[0]     = init_done;
++	end
++
++	// -- register port -------------------------------------------
++	always @(posedge clk_i) begin
++		reg_ack_o <= 1'b0;
++		sts_clear <= 1'b0;
++
++		if (rst_i) begin
++			tune <= TUNE_RESET;
++			tune_next <= TUNE_RESET;
++			tune_seq <= 4'd0;
++			no_refresh <= 1'b0;
++			wr_noread <= 1'b0;
++			rdbuf_off <= 1'b0;
++		end else if (tune_seq != 4'd0) begin
++			// Paused: seven cycles before the change, seven after.
++			tune_seq <= tune_seq - 4'd1;
++			if (tune_seq == 4'd8) tune <= tune_next;
++			if (tune_seq == 4'd1) reg_ack_o <= 1'b1;
++		end else if (reg_cyc_i && reg_stb_i && !reg_ack_o
++		             && reg_adr_i == 2'd1 && reg_we_i) begin
++			reg_dat_o <= tune;
++			tune_next <= reg_dat_i;
++			tune_seq <= 4'd15;
++		end else if (reg_cyc_i && reg_stb_i && !reg_ack_o) begin
++			reg_ack_o <= 1'b1;
++			case (reg_adr_i)
++			2'd0: reg_dat_o <= status;
++			2'd1: reg_dat_o <= tune;
++			2'd2: begin
++				reg_dat_o <= {28'd0, rdbuf_off, wr_noread, 1'b0, no_refresh};
++				if (reg_we_i) begin
++					no_refresh <= reg_dat_i[0];
++					sts_clear <= reg_dat_i[1];
++					wr_noread <= reg_dat_i[2];
++					rdbuf_off <= reg_dat_i[3];
++				end
++			end
++			default: reg_dat_o <= 32'd0;
++			endcase
++		end
++	end
++
++endmodule
++
++`default_nettype wire
+diff --git a/soc/rtl/mem/k_ddr3_ctrl.v b/soc/rtl/mem/k_ddr3_ctrl.v
+new file mode 100644
+index 0000000..7597b6f
+--- /dev/null
++++ b/soc/rtl/mem/k_ddr3_ctrl.v
+@@ -0,0 +1,1220 @@
++/*
++ * Zeitlos SOC
++ * Copyright (c) 2025 Lone Dynamics Corporation. All rights reserved.
++ *
++ * DDR3 controller -- protocol layer
++ *
++ * -- the Kakao SOC's copy (soc/rtl/mem/k_ddr3_ctrl.v) --
++ *
++ * Zeitlos's rtl/mem/ddr3_ctrl.v with one thing added: a second port,
++ * fb_*, for the framebuffer's scan-out (soc/rtl/k_fb.v), on which a
++ * whole block of sixteen bytes is read at once. See "the scan-out
++ * port" below; everything else is as it was, and with fb_stb_i tied
++ * low this is the same controller.
++ *
++ * Written from the JEDEC DDR3 command truth table and mode register
++ * definitions and from the Micron MT41K AC timing tables. No code
++ * from any other DDR3 implementation was used or adapted.
++ *
++ * -- what this module is and is not --
++ *
++ * This is the part that knows DDR3: the power-on sequence, the mode
++ * registers, which command to issue and how long to wait before the
++ * next one. It knows NOTHING about the ECP5, about DQS, or about how
++ * many clock cycles a particular PHY takes to get data on and off the
++ * pins. That division is the point -- everything here can be
++ * simulated against a plain DRAM model with no vendor primitives
++ * involved, and rtl/mem/ddr3_phy_ecp5.v can be brought up
++ * independently against a controller already known to be correct.
++ *
++ * The PHY contract is deliberately narrow:
++ *
++ *   * One command per controller cycle, presented on the command
++ *     outputs. The controller runs at half the DRAM clock, so a
++ *     command lands on every SECOND DRAM clock and the PHY issues
++ *     DESELECT on the other one. Command spacing is therefore
++ *     quantised to 2 DRAM clocks -- see "why half rate" below.
++ *
++ *   * Write data is handed over WHOLE, all 128 bits of the burst in
++ *     one cycle, in the same cycle as the WRITE command. The PHY
++ *     owns the CWL delay and the serialisation.
++ *
++ *   * Read data comes back WHOLE, all 128 bits, whenever the PHY says
++ *     so. The controller does not count CAS latency; it waits for
++ *     phy_rvalid_i.
++ *
++ * That last point matters more than it looks. Read return time on
++ * this part is not something a controller can predict: it depends on
++ * board flight time, on the ECP5's DQS delay code, and (because this
++ * design runs DDR3 far below its specified clock -- see docs/ddr3.md)
++ * on DLL behaviour that is not characterised at this frequency.
++ * Making the PHY announce data rather than having the controller
++ * predict it means the read path can be trained without touching
++ * this file -- as it is, by the BIOS.
++ *
++ * -- why half rate --
++ *
++ * The controller runs at sys_clk (48MHz) and the DRAM at 96MHz.
++ * Commands could be issued on either DRAM clock edge, but issuing
++ * only on even ones halves the command logic for a cost of at most
++ * one DRAM clock (10.4ns) of extra spacing per command. At this
++ * frequency every JEDEC timing except the raw minimums is already
++ * satisfied by a wide margin, so that cost is invisible. Keeping it
++ * simple is worth more.
++ *
++ * -- why CL=6 AND CWL=6 --
++ *
++ * CL=6 is the lowest CAS latency DDR3 defines (the DDR3-800 bin) and
++ * the only sensible choice this far below the specified clock range.
++ * At 96MHz it costs 62.5ns, which is most of the access time; nothing
++ * can be done about that short of running the DRAM faster.
++ *
++ * CWL is set to 6 rather than the 5 the slowest bin would give. The
++ * reason is alignment, not timing: with the controller at half rate,
++ * an ODD write latency would start the write burst on an odd DRAM
++ * clock, i.e. half a controller cycle out of phase with everything
++ * else, and every downstream data path would need a half-cycle
++ * skewed variant. An even CWL keeps writes on the same phase grid as
++ * reads and commands. A larger CWL only makes the DRAM wait longer
++ * before sampling write data, so it is always safe; it is the small
++ * ones that are dangerous.
++ *
++ * -- access policy: auto-precharge, one burst per request --
++ *
++ * Every access is ACTIVATE, then READ or WRITE with A10 high so the
++ * DRAM precharges the row itself. No open-row tracking and no
++ * explicit PRECHARGE command. That is the simplest correct policy
++ * and an open-row policy would be the next step for speed; it is
++ * called out here because it
++ * is the single biggest performance decision in the file and it is
++ * deliberately the wrong one for now.
++ *
++ * Note what auto-precharge buys beyond simplicity: with no row left
++ * open, every bank is idle whenever this module is idle, so a refresh
++ * needs no PRECHARGE ALL ahead of it and the refresh path is three
++ * states rather than six.
++ *
++ * -- single word accesses out of a 16-byte burst --
++ *
++ * DDR3 has no short read. The minimum burst on a x16 part is BL8 =
++ * 8 transfers x 16 bits = 128 bits = 16 bytes, which is exactly one
++ * 4-word cache line. The controller keeps the whole burst in a block
++ * register, so the three words after the first of a line fill are
++ * answered from it rather than by three more DRAM reads.
++ *
++ * Nor is there a short write, and DM is NOT used: a 32-bit store is a
++ * read-modify-write -- read the block, merge the word under its byte
++ * enables, write all sixteen bytes back unmasked (S_RMW_*). A store
++ * whose block is already in the register skips the read. Masked
++ * writes never worked in the first bring-up at any alignment tried;
++ * unmasked ones did, and this leaves one mechanism to get right.
++ */
++
++`default_nettype none
++
++module k_ddr3_ctrl #(
++	// -- Device geometry ------------------------------------------
++	// Row bits are the only thing that differs between MT41K64M16
++	// (13), MT41K128M16 (14) and MT41K256M16 (15). All three are x16
++	// with 10 column bits and 8 banks.
++	// MT41K256M16 (4Gb x16) has fifteen row bits. The bus reaches
++	// 256MB: 2 word + 7 block + 3 bank + 14 row = 26 address bits,
++	// exactly wb_adr_i. The top row bit is unused and half the part
++	// is unreachable, which is a bus limit, not a controller one.
++	parameter ROW_BITS  = 14,
++	parameter COL_BITS  = 10,
++	parameter BANK_BITS = 3,
++
++	// tRFC depends on density and is the one AC timing that does:
++	// 110ns at 1Gb, 160ns at 2Gb, 260ns at 4Gb.
++	// 260ns for a 4Gb part (JEDEC; MT41K256M16 datasheet).
++	//
++	// The 1Gb figure, 110ns, was used for weeks during bring-up.
++	// A refresh fires every 7.8us, so waiting the wrong one sends
++	// commands to a DRAM still refreshing about 128,000 times a
++	// second. The corruption is intermittent and moves with timing,
++	// which reads exactly like a datapath tuning problem.
++	parameter TRFC_NS = 260,
++
++	// -- Clocks ----------------------------------------------------
++	// Controller clock in MHz. The DRAM runs at twice this.
++	parameter CLK_MHZ = 48,
++
++	// -- Write combining -------------------------------------------
++	// 1: stores are merged into the block register and acknowledged at
++	// once; the block goes to the DRAM when something else needs the
++	// controller, or after WC_IDLE idle cycles. See "write combining"
++	// below. 0: every store is a DRAM write, as it always was.
++	parameter WCOMBINE = 0,
++	parameter WC_IDLE = 8,
++
++	// -- Simulation ------------------------------------------------
++	// Divides the two multi-hundred-microsecond power-on waits so a
++	// testbench does not spend a million cycles reaching the first
++	// command. MUST be 1 for hardware.
++	parameter INIT_DIV = 1
++) (
++	input wire clk_i,
++	input wire rst_i,
++
++	// -- Wishbone (word addressed, 26 bits = 256MB) ---------------
++	input wire [26:0] wb_adr_i,
++	input wire [31:0] wb_dat_i,
++	output reg [31:0] wb_dat_o,
++	input wire wb_we_i,
++	input wire [3:0] wb_sel_i,
++	input wire wb_stb_i,
++	input wire wb_cyc_i,
++	output reg wb_ack_o,
++
++	// -- the scan-out port: block addressed (wb_adr_i's upper 25
++	// bits), read only; fb_stb_i is held until fb_ack_o, and the
++	// block stands in fb_dat_o from then until the next one ---------
++	input wire fb_stb_i,
++	input wire [24:0] fb_adr_i,
++	output reg fb_ack_o,
++	output reg [127:0] fb_dat_o,
++
++	// -- PHY: status ----------------------------------------------
++	input wire phy_ready_i,      // PHY delay hardware is up
++	output reg init_done_o,      // DRAM is initialised and usable
++
++	// Sticky: a read gave up waiting for the PHY.
++	//
++	// A wishbone cycle that never acknowledges stalls the CPU on a
++	// load forever, with nothing on the console -- the machine simply
++	// stops, and the only thing to do is power-cycle it. Bad data can
++	// be read back and measured against; a hang cannot. So a read
++	// always completes, and says afterwards that it failed.
++	output reg rd_timeout_o,
++
++	// Hold refresh while the BIOS trains the read path. See the
++	// refresh counter below.
++	input wire no_refresh_i,
++
++	// Writes skip their read, for training.
++	//
++	// Read-modify-write makes every write depend on a read: the block
++	// is read, the word merged, the block written back. Training
++	// measures reads against data it has written -- so with the read
++	// path mistuned, which is the state training exists to fix,
++	// nothing could ever be written and nothing measured. A chicken
++	// and an egg.
++	//
++	// With this set, a write merges into whatever the block register
++	// holds and writes it without reading. Written as four words in
++	// sequence, a block ends up exactly right regardless: the first
++	// write carries one correct word and three stale ones, each later
++	// write hits the register and fixes its own word, and the fourth
++	// carries all four. Only ever used for whole blocks, and only
++	// while training.
++	input wire wr_noread_i,
++
++	// Reads always go to the DRAM, never to the block register.
++	//
++	// Training writes a block and reads it back to see whether the
++	// read path works. The write leaves the block in the register, so
++	// without this every training read was answered from the register
++	// and passed at every setting: the first hardware scan reported
++	// all sixteen offsets working at every phase, gate and write delay,
++	// on both lanes, when the real read path had never delivered a
++	// single burst. A measurement of the thing doing the measuring.
++	input wire rdbuf_off_i,
++
++	// -- PHY: command (one per cycle, on even DRAM clocks) --------
++	output reg phy_reset_n_o,
++	output reg phy_cke_o,
++	output reg phy_odt_o,
++	output reg phy_cs_n_o,
++	output reg phy_ras_n_o,
++	output reg phy_cas_n_o,
++	output reg phy_we_n_o,
++	output reg [15:0] phy_a_o,
++	output reg [2:0] phy_ba_o,
++
++	// -- PHY: data ------------------------------------------------
++	// A whole BL8 burst in one go. phy_wmask_o is per byte, 1 =
++	// masked (not written), matching the DM pin's own polarity.
++	output reg phy_wren_o,
++	output reg [127:0] phy_wdata_o,
++	output reg [15:0] phy_wmask_o,
++	output reg phy_rden_o,
++	input wire phy_rvalid_i,
++	input wire [127:0] phy_rdata_i
++);
++
++	// =============================================================
++	// Timing
++	//
++	// All JEDEC timings are quoted either in nanoseconds or in DRAM
++	// clocks, and the binding one is whichever is larger. At 96MHz a
++	// DRAM clock is 10.4ns, which is long enough that the clock-count
++	// minimums win almost everywhere -- tRCD's 13.75ns is 2 clocks,
++	// but tRTP's "4 clocks or 7.5ns" is 4. Both forms are computed
++	// and the larger taken, rather than assuming which wins, because
++	// that assumption stops being true if CLK_MHZ ever changes.
++	//
++	// Everything is then converted to CONTROLLER cycles, rounding up,
++	// since a command can only be issued every second DRAM clock.
++	// =============================================================
++
++	localparam DRAM_MHZ = CLK_MHZ * 2;
++
++	// Nanoseconds to DRAM clocks, rounded up.
++	`define NS2CK(ns) (((ns) * DRAM_MHZ + 999) / 1000)
++	// DRAM clocks to controller cycles, rounded up.
++	`define CK2CYC(ck) (((ck) + 1) / 2)
++	// Nanoseconds to controller cycles, rounded up.
++	`define NS2CYC(ns) `CK2CYC(`NS2CK(ns))
++
++	localparam CL  = 6;   // CAS latency, DRAM clocks
++	localparam CWL = 6;   // CAS write latency, DRAM clocks
++
++	// Power-on: RESET# low at least 200us, then CKE low at least
++	// another 500us. Both are power-supply settling requirements, not
++	// DRAM-internal ones, which is why shortening them in simulation
++	// is legitimate and shortening anything below is not.
++	localparam CYC_RESET = (200 * CLK_MHZ) / INIT_DIV;
++	localparam CYC_CKE   = (500 * CLK_MHZ) / INIT_DIV;
++
++	// tXPR: exit reset to first command, max(5 CK, tRFC + 10ns).
++	localparam CYC_XPR  = (`NS2CYC(TRFC_NS + 10) > `CK2CYC(5)) ?
++	                       `NS2CYC(TRFC_NS + 10) : `CK2CYC(5);
++	localparam CYC_MRD  = `CK2CYC(4);                 // MRS to MRS
++	localparam CYC_MOD  = (`CK2CYC(12) > `NS2CYC(15)) ?
++	                       `CK2CYC(12) : `NS2CYC(15); // MRS to non-MRS
++	// ZQ calibration long at init is 512 clocks, and the DLL needs
++	// tDLLK = 512 clocks after its reset. Same number, one wait.
++	localparam CYC_ZQINIT = `CK2CYC(512);
++
++	localparam CYC_RCD  = `NS2CYC(1375) / 100;        // 13.75ns
++	localparam CYC_RP   = `NS2CYC(1375) / 100;        // 13.75ns
++	localparam CYC_RC   = `NS2CYC(4875) / 100;        // 48.75ns
++	localparam CYC_RAS  = `NS2CYC(35);
++	localparam CYC_RFC  = `NS2CYC(TRFC_NS);
++	// tWR is measured from the END of the write burst, and with
++	// auto-precharge the DRAM starts its internal precharge after
++	// tWR, so a write occupies the bank for CWL + burst + tWR + tRP.
++	// Write recovery for AUTO-PRECHARGE is MR0's WR, in clocks -- the
++	// part waits that, not tWR in nanoseconds. It used to be timed as
++	// 15ns (one system cycle) while MR0 said 6 clocks (62.5ns), and the
++	// controller stayed legal only by 0.7 of a DRAM clock of incidental
++	// state-machine overhead. One value, used for both.
++	localparam WR_CK = 6;                  // >= tWR 15ns = 2 clocks
++	localparam [2:0] WR_ENC = 3'b010;      // MR0 A[11:9]: 6 clocks
++	localparam CYC_WR   = `CK2CYC(WR_CK);
++	// tRTP, read to precharge: max(4 CK, 7.5ns).
++	localparam CYC_RTP  = (`CK2CYC(4) > `NS2CYC(8)) ?
++	                       `CK2CYC(4) : `NS2CYC(8);
++
++	// Average refresh interval, 7.8us. Counted in controller cycles.
++	localparam CYC_REFI = (78 * CLK_MHZ) / 10;
++
++	// A BL8 burst is 8 transfers = 4 DRAM clocks = 2 controller
++	// cycles of data on the bus.
++	localparam CYC_BURST = 2;
++
++	// After a WRITE command the bank is busy for the write latency,
++	// the burst, the write recovery and the precharge. After a READ,
++	// for tRTP and the precharge. Both are counted from the command.
++	localparam CYC_WR_BUSY = `CK2CYC(CWL) + CYC_BURST + CYC_WR + CYC_RP;
++	localparam CYC_RD_BUSY = CYC_RTP + CYC_RP;
++
++	// =============================================================
++	// Mode registers
++	//
++	// Bit assignments are from the JEDEC DDR3 mode register
++	// definitions. Written out as named fields rather than magic
++	// constants because a wrong bit here does not fail loudly -- it
++	// produces a DRAM that mostly works.
++	// =============================================================
++
++	// MR0: burst length, CAS latency, write recovery, DLL reset.
++	//   A[1:0] = 00  BL8 fixed
++	//   A[2]   = 0   CAS latency low bit (only used above CL=11)
++	//   A[3]   = 0   sequential burst order
++	//   A[6:4] = CL - 4
++	//   A[7]   = 0   normal mode, not test
++	//   A[8]   = 1   DLL reset
++	//   A[11:9]= write recovery, encoded; 001 = 5, the minimum, which
++	//            is far more than tWR needs at this clock
++	//   A[12]  = 0   slow precharge power down exit
++	// The latency fields are three bits wide each. Spelled out as
++	// sized localparams rather than written inline: an unsized
++	// expression in a concatenation has no defined width, and the
++	// tools are entitled to guess differently than intended.
++	localparam [2:0] CL_ENC  = CL[2:0] - 3'd4;
++	localparam [2:0] CWL_ENC = CWL[2:0] - 3'd5;
++
++	// Exactly sixteen bits, field by field. This was a 17-bit
++	// concatenation that worked only because the extra bit was a
++	// leading zero, and it programmed WR=6 while its comment said 5.
++	localparam [15:0] MR0 = {3'b000,   // A15:A13
++	                         1'b0,     // A12 precharge power-down, slow
++	                         WR_ENC,   // A11:A9 write recovery
++	                         1'b1,     // A8 DLL reset
++	                         1'b0,     // A7 normal mode
++	                         CL_ENC,   // A6:A4 CAS latency
++	                         1'b0,     // A3 sequential burst
++	                         1'b0,     // A2 CAS latency, low bit
++	                         2'b00};   // A1:A0 BL8
++
++	// MR1: DLL enable, drive strength, termination.
++	//   A[0]     = 0   DLL enabled
++	//   A[5],A[1]= 01  output driver impedance RZQ/7 (34 ohm)
++	//   A[4:3]   = 00  additive latency disabled
++	//   A[9],A[6],A[2] = 000  Rtt_nom disabled
++	//   A[7]     = 0   write levelling disabled
++	//   A[11]    = 0   TDQS disabled (not available on x16 anyway)
++	//   A[12]    = 0   outputs enabled
++	//
++	// ON-DIE TERMINATION IS OFF, on purpose. At 96MHz a bit is
++	// 10.4ns wide and the module's DRAM sits centimetres from the
++	// FPGA, so reflections settle within a small fraction of the eye
++	// and termination buys nothing measurable. What it would cost is
++	// real: Rtt_nom brings the ODT pin's own timing rules into the
++	// write path, which is a class of bug worth not having. Revisit
++	// only if signal integrity ever demands it; it has not on ML2.
++	localparam [15:0] MR1 = {4'b0000, 1'b0, 2'b00, 1'b0, 1'b0,
++	                         1'b0, 1'b0, 1'b0, 2'b00, 1'b1, 1'b0};
++
++	// MR2: CAS write latency. Rtt_WR disabled to match MR1.
++	//   A[5:3]  = CWL - 5
++	//   A[6]    = 0  auto self-refresh off
++	//   A[7]    = 0  normal self-refresh temperature range
++	//   A[10:9] = 00 Rtt_WR disabled
++	localparam [15:0] MR2 = {5'b00000, 2'b00, 1'b0, 1'b0,
++	                         CWL_ENC, 3'b000};
++
++	// MR3: multi-purpose register off; nothing else defined.
++	localparam [15:0] MR3 = 16'h0000;
++
++	// =============================================================
++	// Command encodings: {CS#, RAS#, CAS#, WE#}
++	// =============================================================
++	localparam [3:0] CMD_MRS  = 4'b0000;
++	localparam [3:0] CMD_REF  = 4'b0001;
++	localparam [3:0] CMD_PRE  = 4'b0010;
++	localparam [3:0] CMD_ACT  = 4'b0011;
++	localparam [3:0] CMD_WR   = 4'b0100;
++	localparam [3:0] CMD_RD   = 4'b0101;
++	localparam [3:0] CMD_ZQC  = 4'b0110;
++	localparam [3:0] CMD_NOP  = 4'b0111;
++	localparam [3:0] CMD_DES  = 4'b1111;
++
++	// =============================================================
++	// State
++	// =============================================================
++	localparam [4:0] S_RESET    = 5'd0;
++	localparam [4:0] S_CKE_WAIT = 5'd1;
++	localparam [4:0] S_CKE_HIGH = 5'd2;
++	localparam [4:0] S_MR2      = 5'd3;
++	localparam [4:0] S_MR3      = 5'd4;
++	localparam [4:0] S_MR1      = 5'd5;
++	localparam [4:0] S_MR0      = 5'd6;
++	localparam [4:0] S_ZQCL     = 5'd7;
++	localparam [4:0] S_IDLE     = 5'd8;
++	localparam [4:0] S_ACT      = 5'd9;
++	localparam [4:0] S_RD       = 5'd10;
++	localparam [4:0] S_RD_WAIT  = 5'd11;
++	localparam [4:0] S_RD_BUSY  = 5'd12;
++	localparam [4:0] S_WR       = 5'd13;
++	localparam [4:0] S_WR_BUSY  = 5'd14;
++	localparam [4:0] S_REF      = 5'd15;
++	localparam [4:0] S_WAIT     = 5'd16;
++
++	// Read-modify-write. A write-through store is 32 bits; a DRAM
++	// access is 16 bytes. The gap is bridged by reading the block,
++	// merging the word, and writing all sixteen bytes back with
++	// nothing masked -- so DM is never used and is tied inactive.
++	//
++	// Masked writes never worked on this board at any alignment
++	// tried, while unmasked writes round-tripped byte-exact. More to
++	// the point, this leaves ONE mechanism to get right instead of
++	// two, and it is the burst read that line fills already depend
++	// on: if reads work, everything works.
++	localparam [4:0] S_RMW_RD   = 5'd17;
++	localparam [4:0] S_RMW_WAIT = 5'd18;
++	localparam [4:0] S_RMW_ACT  = 5'd19;
++	localparam [4:0] S_WC_FLUSH = 5'd20;
++	localparam [4:0] S_FB_RD    = 5'd21;
++	localparam [4:0] S_FB_WAIT  = 5'd22;
++
++	// =============================================================
++	// The scan-out port
++	//
++	// A screen is read out of main memory as it is drawn: 80 blocks a
++	// line at 640 pixels of 16 bits, and each has a time by which it
++	// must be there. So a request here is taken before the bus's, and
++	// only a refresh goes ahead of it: at worst it waits for the
++	// access in hand and a refresh, and the reader's queue of blocks
++	// is deep enough for that.
++	//
++	// It is an ordinary read -- ACTIVATE, READ with auto-precharge --
++	// that goes to fb_dat_o and not to the block register, which is
++	// left exactly as it was: the bus's next access finds its block
++	// still held, and stores still combine. The price is that bytes
++	// the register holds unwritten are not seen: the screen shows a
++	// store when it has reached the DRAM, WC_IDLE cycles later at
++	// most, which is a frame late at worst.
++	//
++	// Nothing here keeps the port from having the memory to itself: a
++	// reader that asked without pause would. The scan-out cannot: it
++	// asks while its queue has room, and the queue empties at the
++	// rate the screen is drawn -- at 640 by 480 and 16 bits a block
++	// every 19 cycles, of which a read here is 12. What is left is the
++	// bus's, and it is the price of the picture; reading a row's
++	// blocks in one burst is what would lower it.
++	// =============================================================
++	reg fb_rd;
++	wire fb_req = fb_stb_i && !fb_ack_o;
++
++	reg [4:0] state;
++	reg [4:0] ret_state;
++	reg [19:0] wait_ctr;
++
++	reg [15:0] refresh_ctr;
++	reg refresh_req;
++
++	reg [ROW_BITS-1:0] req_row;
++	reg [BANK_BITS-1:0] req_bank;
++	reg [COL_BITS-1:0] req_col;
++	reg [1:0] req_word;
++	reg [3:0] req_sel;
++	reg [31:0] req_wdat;
++	reg req_we;
++	reg req_busy;
++
++	reg [127:0] rd_hold;
++
++	integer i;
++
++	// -- Address mapping ------------------------------------------
++	//
++	// {row, bank, column} with the bank bits immediately above the
++	// column. A BL8 burst covers 8 columns = 16 bytes, so the low
++	// three column bits are always zero and the burst is naturally
++	// aligned; wb_adr_i[1:0] then picks the word within it.
++	//
++	// Putting bank above column rather than below means a sequential
++	// walk stays inside one 2KB row for as long as possible. That is
++	// worth nothing today, because auto-precharge closes the row
++	// after every access anyway -- but it is what open-row tracking
++	// would want, and changing the address map later would
++	// invalidate every measurement taken before it.
++	// -- single-block read buffer ---------------------------------
++	//
++	// One DRAM read fetches sixteen bytes; the bus asks for four. The
++	// data cache fills a line with a FOUR-WORD linear burst, which is
++	// exactly those sixteen bytes -- so without this, the same burst
++	// is read from the DRAM four times over.
++	//
++	// One block, one tag, one valid bit. Not a cache: no replacement
++	// policy, nothing to tune, nothing to get subtly wrong. A read
++	// that hits is answered from the register; a read that misses
++	// does exactly what it did before.
++	//
++	// Invalidated by ANY write. A write landing in the buffered block
++	// would otherwise be invisible to the next read of it, and
++	// working out which writes overlap is more logic than dropping
++	// the block. Writes are rare next to fills, and the simple rule
++	// cannot be wrong.
++	reg [127:0] rdbuf_data;
++	reg [ROW_BITS+BANK_BITS+COL_BITS-4:0] rdbuf_tag;
++	reg rdbuf_valid;
++
++	// 2 word + 7 block + 3 bank + ROW_BITS row bits must fit the 27-bit
++	// word address -- 512MB, the main-memory window. More rows than
++	// that would slice past the bus and alias silently, so it fails the
++	// build instead: the same device rtl/sysctl.v uses for JUMPLOADER
++	// without PROGRAMN_PIN.
++	generate
++		if (ROW_BITS > 15) begin : too_many_rows
++			DDR3_ROW_BITS_exceeds_the_27_bit_bus_see_rtl_boards_vh stop_here ();
++		end
++	endgenerate
++
++	wire [COL_BITS-1:0] map_col;
++	wire [BANK_BITS-1:0] map_bank;
++	wire [ROW_BITS-1:0] map_row;
++
++	// Word address layout, low to high:
++	//
++	//   [1:0]                    word within the 16-byte block
++	//   [COL_BITS-2:2]           block within the row  (COL_BITS-3 bits)
++	//   next BANK_BITS           bank
++	//   next ROW_BITS            row
++	//
++	// A 10-bit column is 1024 sixteen-bit locations, which is 128
++	// eight-beat blocks, which needs SEVEN block bits. This used five
++	// (wb_adr_i[COL_BITS-4:2]), so the top two column bits were
++	// always zero and only a quarter of every row was reachable: the
++	// addresses were all distinct, nothing aliased, and three
++	// quarters of the memory was silently never used. A test that
++	// checks addresses are distinct cannot see that; only one that
++	// checks how many of them there are.
++	assign map_col  = {wb_adr_i[COL_BITS-2:2], 3'b000};
++
++	// The tag is everything above the four words inside a block.
++	wire [ROW_BITS+BANK_BITS+COL_BITS-4:0] req_tag =
++		{map_row, map_bank, map_col[COL_BITS-1:3]};
++	wire rdbuf_hit = rdbuf_valid && (rdbuf_tag == req_tag);
++
++	// The sixteen bytes being assembled for a write.
++	// ONE register holds the block, for both purposes.
++	//
++	// The read buffer and the read-modify-write buffer are the same
++	// sixteen bytes; keeping two of them would mean two things that
++	// have to agree about what memory contains, and things that have
++	// to agree eventually do not. rdbuf_data is it.
++	//
++	// The block as it will be written: what is held, with this
++	// store's word merged in.
++	wire [127:0] rmw_merged = {
++		(req_word == 2'd3) ? merge_word(rdbuf_data[127:96], req_wdat, req_sel) : rdbuf_data[127:96],
++		(req_word == 2'd2) ? merge_word(rdbuf_data[95:64], req_wdat, req_sel)  : rdbuf_data[95:64],
++		(req_word == 2'd1) ? merge_word(rdbuf_data[63:32], req_wdat, req_sel)  : rdbuf_data[63:32],
++		(req_word == 2'd0) ? merge_word(rdbuf_data[31:0], req_wdat, req_sel)   : rdbuf_data[31:0]
++	};
++
++	// A read that never completes must not hang the bus.
++	//
++	// A wishbone cycle with no acknowledge stalls the CPU on a load
++	// forever, with nothing on the console. Bad data can be measured
++	// and tuned against; a hang can only be power-cycled. 1023 cycles
++	// is far longer than any legitimate read and still instant to a
++	// person watching.
++	localparam [10:0] RD_TIMEOUT = 11'd1023;
++	reg [10:0] rd_timer;
++
++	// One word, with the selected bytes replaced.
++	//
++	// EVERYTHING it reads is an argument. It used to read req_sel and
++	// req_wdat from the module directly, and a function called from a
++	// continuous assignment is re-evaluated only when its ARGUMENTS
++	// change -- not when the signals it reads inside do. rmw_merged
++	// therefore froze on the first store's data: the second store to
++	// a block wrote the first store's value into its own word.
++	//
++	// Synthesis does not share the problem, which makes it worse
++	// rather than better: simulation and hardware disagree, and the
++	// simulation is the one that looks broken while the design is
++	// right, or the reverse, depending on which you trust.
++	function [31:0] merge_word;
++		input [31:0] old;
++		input [31:0] wdat;
++		input [3:0] sel;
++		begin
++			merge_word[7:0]   = sel[0] ? wdat[7:0]   : old[7:0];
++			merge_word[15:8]  = sel[1] ? wdat[15:8]  : old[15:8];
++			merge_word[23:16] = sel[2] ? wdat[23:16] : old[23:16];
++			merge_word[31:24] = sel[3] ? wdat[31:24] : old[31:24];
++		end
++	endfunction
++	// =============================================================
++	// Write combining (WCOMBINE)
++	//
++	// A store costs the DRAM an ACTIVATE, a WRITE and the write's
++	// recovery and precharge -- about thirteen cycles -- and the first
++	// store to a block a read before all that. A graphics engine
++	// writing a picture out stores every word of every block in order,
++	// so four stores cost four writes and a read, for sixteen bytes the
++	// DRAM could have taken in one write and no read.
++	//
++	// So the block register takes stores. A store to the block it holds
++	// -- or to any block, when it holds nothing unwritten -- is merged
++	// into it and acknowledged in the same cycle, and wc_bv records
++	// which bytes are newer than the DRAM. The block is written
++	// (S_WC_FLUSH) when the controller is needed for anything it
++	// cannot answer from the register, or when it has sat idle
++	// WC_IDLE cycles. All sixteen bytes written: no read. Fewer: the
++	// read-modify-write as before, merging under wc_bv.
++	//
++	// Coherent by construction: every access goes through here, and
++	// nothing reaches the DRAM while it holds unwritten bytes except
++	// the flush itself. A read of a word the register has whole is
++	// answered from it; any other read flushes first.
++	//
++	// Off while training (rdbuf_off_i, wr_noread_i): training is about
++	// the DRAM, not the register. Anything held is flushed first.
++	// =============================================================
++	reg wc_dirty;
++	reg [15:0] wc_bv;
++	reg wc_flushing;
++	reg [3:0] wc_idle;
++	wire wc_on = (WCOMBINE != 0) && !rdbuf_off_i && !wr_noread_i;
++
++	wire wc_req = wb_cyc_i && wb_stb_i && !req_busy && !wb_ack_o;
++	wire wc_tag_eq = (rdbuf_tag == req_tag);
++	wire [3:0] wc_word_bv = (wb_adr_i[1:0] == 2'd0) ? wc_bv[3:0] :
++	                        (wb_adr_i[1:0] == 2'd1) ? wc_bv[7:4] :
++	                        (wb_adr_i[1:0] == 2'd2) ? wc_bv[11:8] : wc_bv[15:12];
++	// a read the register can answer
++	wire wc_rd_hit = wc_tag_eq && !rdbuf_off_i &&
++		(rdbuf_valid || (wc_dirty && (&wc_word_bv)));
++	// a store the register can take: its own block, or any block
++	// when nothing in it is unwritten
++	wire wc_wr_take = wc_on && (!wc_dirty || wc_tag_eq);
++	wire wc_wr_same = wc_tag_eq && (rdbuf_valid || wc_dirty);
++	wire wc_conflict = wc_req && (wb_we_i ? !wc_wr_take : !wc_rd_hit);
++
++	// the store merged into what is held
++	wire [127:0] wc_merged = {
++		(wb_adr_i[1:0] == 2'd3) ? merge_word(rdbuf_data[127:96], wb_dat_i, wb_sel_i) : rdbuf_data[127:96],
++		(wb_adr_i[1:0] == 2'd2) ? merge_word(rdbuf_data[95:64], wb_dat_i, wb_sel_i)  : rdbuf_data[95:64],
++		(wb_adr_i[1:0] == 2'd1) ? merge_word(rdbuf_data[63:32], wb_dat_i, wb_sel_i)  : rdbuf_data[63:32],
++		(wb_adr_i[1:0] == 2'd0) ? merge_word(rdbuf_data[31:0], wb_dat_i, wb_sel_i)   : rdbuf_data[31:0]
++	};
++	wire [15:0] wc_sel_bv = {
++		(wb_adr_i[1:0] == 2'd3) ? wb_sel_i : 4'd0,
++		(wb_adr_i[1:0] == 2'd2) ? wb_sel_i : 4'd0,
++		(wb_adr_i[1:0] == 2'd1) ? wb_sel_i : 4'd0,
++		(wb_adr_i[1:0] == 2'd0) ? wb_sel_i : 4'd0
++	};
++	wire [15:0] wc_bv_next = (wc_wr_same ? wc_bv : 16'd0) | wc_sel_bv;
++
++	// the block as read, under the bytes the register has newer
++	reg [127:0] wc_fill;
++	integer wci;
++	always @(*) begin
++		for (wci = 0; wci < 16; wci = wci + 1)
++			wc_fill[wci*8 +: 8] = wc_bv[wci] ? rdbuf_data[wci*8 +: 8]
++			                                : phy_rdata_i[wci*8 +: 8];
++	end
++
++	assign map_bank = wb_adr_i[COL_BITS-1+BANK_BITS-1:COL_BITS-1];
++	assign map_row  = wb_adr_i[COL_BITS-1+BANK_BITS+ROW_BITS-1:
++	                           COL_BITS-1+BANK_BITS];
++
++	// A10 is overloaded on every command that uses it, so it is
++	// assembled explicitly at each issue site rather than being part
++	// of the row/column address.
++
++	// =============================================================
++	// Refresh interval
++	//
++	// Free running, independent of the state machine, so that time
++	// spent servicing a long access still counts towards the next
++	// refresh. Cleared when the refresh is actually issued.
++	// =============================================================
++	always @(posedge clk_i) begin
++		if (rst_i) begin
++			refresh_ctr <= 16'd0;
++			refresh_req <= 1'b0;
++		end else if (!init_done_o) begin
++			refresh_ctr <= 16'd0;
++			refresh_req <= 1'b0;
++		end else if (state == S_REF) begin
++			refresh_ctr <= 16'd0;
++			refresh_req <= 1'b0;
++		end else if (refresh_ctr >= CYC_REFI[15:0]) begin
++			// DEFERRED while training, never skipped: the counter
++			// holds at the interval and the refresh is issued the
++			// moment training ends.
++			//
++			// A refresh every 7.8us in the middle of a scan that
++			// takes milliseconds disturbed a different random subset
++			// of points on every run last time, so identical
++			// bitstreams gave different maps. Holding it for the
++			// few milliseconds a scan takes is far inside the 64ms
++			// the part retains data for.
++			if (!no_refresh_i) refresh_req <= 1'b1;
++		end else begin
++			refresh_ctr <= refresh_ctr + 16'd1;
++		end
++	end
++
++	// =============================================================
++	// Main sequencer
++	// =============================================================
++	always @(posedge clk_i) begin
++
++		if (rst_i) begin
++
++			state <= S_RESET;
++			ret_state <= S_RESET;
++			wait_ctr <= 20'd0;
++			init_done_o <= 1'b0;
++
++			phy_reset_n_o <= 1'b0;
++			phy_cke_o <= 1'b0;
++			phy_odt_o <= 1'b0;
++			{phy_cs_n_o, phy_ras_n_o, phy_cas_n_o, phy_we_n_o} <= CMD_DES;
++			phy_a_o <= 16'd0;
++			phy_ba_o <= 3'd0;
++
++			phy_wren_o <= 1'b0;
++			phy_wdata_o <= 128'd0;
++			phy_wmask_o <= 16'hffff;
++			phy_rden_o <= 1'b0;
++
++			rdbuf_valid <= 1'b0;
++			wc_dirty <= 1'b0;
++			wc_bv <= 16'd0;
++			wc_flushing <= 1'b0;
++			wc_idle <= 4'd0;
++			rd_timeout_o <= 1'b0;
++			rd_timer <= 11'd0;
++			wb_ack_o <= 1'b0;
++			wb_dat_o <= 32'd0;
++			fb_ack_o <= 1'b0;
++			fb_dat_o <= 128'd0;
++			fb_rd <= 1'b0;
++
++			req_busy <= 1'b0;
++			req_we <= 1'b0;
++			req_row <= {ROW_BITS{1'b0}};
++			req_bank <= {BANK_BITS{1'b0}};
++			req_col <= {COL_BITS{1'b0}};
++			req_word <= 2'd0;
++			req_sel <= 4'd0;
++			req_wdat <= 32'd0;
++			rd_hold <= 128'd0;
++
++		end else begin
++
++			// Defaults. Every command output falls back to DESELECT
++			// so that a state which issues nothing cannot leave a
++			// stale command asserted on the bus -- the failure that
++			// would produce is a spurious second ACTIVATE, which the
++			// DRAM would answer by corrupting a row.
++			{phy_cs_n_o, phy_ras_n_o, phy_cas_n_o, phy_we_n_o} <= CMD_DES;
++			phy_wren_o <= 1'b0;
++			phy_rden_o <= 1'b0;
++			wb_ack_o <= 1'b0;
++			fb_ack_o <= 1'b0;
++
++			// Read data can arrive in any state; capture it wherever
++			// it lands rather than only while waiting for it.
++			if (phy_rvalid_i) rd_hold <= phy_rdata_i;
++
++			case (state)
++
++			// -- Power-on -----------------------------------------
++			//
++			// RESET# low through supply ramp, then high with CKE
++			// still low, then CKE high. The order is mandated and
++			// the waits are supply settling times.
++			S_RESET: begin
++				phy_reset_n_o <= 1'b0;
++				phy_cke_o <= 1'b0;
++				wait_ctr <= CYC_RESET[19:0];
++				ret_state <= S_CKE_WAIT;
++				state <= S_WAIT;
++			end
++
++			S_CKE_WAIT: begin
++				phy_reset_n_o <= 1'b1;
++				phy_cke_o <= 1'b0;
++				wait_ctr <= CYC_CKE[19:0];
++				ret_state <= S_CKE_HIGH;
++				state <= S_WAIT;
++			end
++
++			S_CKE_HIGH: begin
++				// CKE rises here; the DRAM will not accept a command
++				// until tXPR has elapsed.
++				phy_cke_o <= 1'b1;
++				wait_ctr <= CYC_XPR[19:0];
++				ret_state <= S_MR2;
++				state <= S_WAIT;
++			end
++
++			// -- Mode registers -----------------------------------
++			//
++			// MR2, MR3, MR1, MR0. Not an arbitrary order: MR0 must
++			// be last because it carries the DLL reset, and the DLL
++			// must not be reset before the settings it depends on
++			// (CWL in MR2, DLL enable in MR1) are in place.
++			S_MR2: begin
++				{phy_cs_n_o, phy_ras_n_o, phy_cas_n_o, phy_we_n_o} <= CMD_MRS;
++				phy_ba_o <= 3'd2;
++				phy_a_o <= MR2;
++				wait_ctr <= CYC_MRD[19:0];
++				ret_state <= S_MR3;
++				state <= S_WAIT;
++			end
++
++			S_MR3: begin
++				{phy_cs_n_o, phy_ras_n_o, phy_cas_n_o, phy_we_n_o} <= CMD_MRS;
++				phy_ba_o <= 3'd3;
++				phy_a_o <= MR3;
++				wait_ctr <= CYC_MRD[19:0];
++				ret_state <= S_MR1;
++				state <= S_WAIT;
++			end
++
++			S_MR1: begin
++				{phy_cs_n_o, phy_ras_n_o, phy_cas_n_o, phy_we_n_o} <= CMD_MRS;
++				phy_ba_o <= 3'd1;
++				phy_a_o <= MR1;
++				wait_ctr <= CYC_MRD[19:0];
++				ret_state <= S_MR0;
++				state <= S_WAIT;
++			end
++
++			S_MR0: begin
++				{phy_cs_n_o, phy_ras_n_o, phy_cas_n_o, phy_we_n_o} <= CMD_MRS;
++				phy_ba_o <= 3'd0;
++				phy_a_o <= MR0;
++				wait_ctr <= CYC_MOD[19:0];
++				ret_state <= S_ZQCL;
++				state <= S_WAIT;
++			end
++
++			// ZQ calibration long, A10 high. The wait that follows
++			// covers both tZQinit and the DLL lock time tDLLK, which
++			// are both 512 DRAM clocks and both start here.
++			S_ZQCL: begin
++				{phy_cs_n_o, phy_ras_n_o, phy_cas_n_o, phy_we_n_o} <= CMD_ZQC;
++				phy_ba_o <= 3'd0;
++				phy_a_o <= 16'h0400;
++				wait_ctr <= CYC_ZQINIT[19:0];
++				ret_state <= S_IDLE;
++				state <= S_WAIT;
++			end
++
++			// -- Idle ---------------------------------------------
++			S_IDLE: begin
++
++				init_done_o <= 1'b1;
++				req_busy <= 1'b0;
++
++				if (wc_req || !wc_dirty) wc_idle <= 4'd0;
++				else if (wc_idle != 4'hf) wc_idle <= wc_idle + 4'd1;
++
++				// Refresh outranks new work. It has a hard deadline
++				// and an access does not; letting a busy bus defer
++				// refreshes indefinitely is how DRAM loses data.
++				// (Unwritten bytes in the register wait: a refresh
++				// does not touch it.)
++				if (refresh_req) begin
++					state <= S_REF;
++				end else if (fb_req) begin
++					// the scan-out's block, before anything of the bus's
++					req_row <= fb_adr_i[COL_BITS-3+BANK_BITS+ROW_BITS-1:COL_BITS-3+BANK_BITS];
++					req_bank <= fb_adr_i[COL_BITS-3+BANK_BITS-1:COL_BITS-3];
++					req_col <= {fb_adr_i[COL_BITS-4:0], 3'b000};
++					req_we <= 1'b0;
++					req_busy <= 1'b1;
++					fb_rd <= 1'b1;
++					state <= S_ACT;
++				end else if (wc_dirty && (!wc_on || wc_conflict ||
++				             wc_idle >= WC_IDLE)) begin
++					// The register's unwritten bytes go first. A
++					// request waiting stays on the bus and is taken
++					// when this is back.
++					state <= S_WC_FLUSH;
++				end else if (wc_req && wb_we_i && wc_wr_take) begin
++					// Taken into the register; written later.
++					rdbuf_data <= wc_merged;
++					rdbuf_tag <= req_tag;
++					rdbuf_valid <= (wc_wr_same && rdbuf_valid) || (&wc_bv_next);
++					wc_bv <= wc_bv_next;
++					wc_dirty <= 1'b1;
++					wb_ack_o <= 1'b1;
++				end else if (wc_req && !wb_we_i && wc_rd_hit) begin
++					// Already have it. A four-word line fill costs
++					// one DRAM read and three of these.
++					case (wb_adr_i[1:0])
++					2'd0: wb_dat_o <= rdbuf_data[31:0];
++					2'd1: wb_dat_o <= rdbuf_data[63:32];
++					2'd2: wb_dat_o <= rdbuf_data[95:64];
++					default: wb_dat_o <= rdbuf_data[127:96];
++					endcase
++					wb_ack_o <= 1'b1;
++				end else if (wb_cyc_i && wb_stb_i && !req_busy
++				             && !wb_ack_o) begin
++					// !wb_ack_o on BOTH paths, not just the hit.
++					//
++					// A buffer hit acknowledges without leaving
++					// S_IDLE, so on the following cycle the master has
++					// not yet dropped stb and the SAME request is
++					// still on the bus. The hit path was guarded
++					// against taking it twice; this one was not, and
++					// it accepted the read again as a fresh request.
++					//
++					// That spurious read then completed while the
++					// master was waiting on its NEXT transaction -- a
++					// write -- and its acknowledge completed the
++					// write, which was never performed. The store
++					// simply vanished. One request, one acknowledge.
++					req_row <= map_row;
++					req_bank <= map_bank;
++					req_col <= map_col;
++					req_word <= wb_adr_i[1:0];
++					req_sel <= wb_sel_i;
++					req_wdat <= wb_dat_i;
++					req_we <= wb_we_i;
++					req_busy <= 1'b1;
++					state <= S_ACT;
++				end
++
++			end
++
++			// -- write combining: the register to the DRAM ---------
++			S_WC_FLUSH: begin
++				req_row <= rdbuf_tag[ROW_BITS+BANK_BITS+COL_BITS-4:BANK_BITS+COL_BITS-3];
++				req_bank <= rdbuf_tag[BANK_BITS+COL_BITS-4:COL_BITS-3];
++				req_col <= {rdbuf_tag[COL_BITS-4:0], 3'b000};
++				req_we <= 1'b1;
++				req_busy <= 1'b1;
++				wc_flushing <= 1'b1;
++				state <= S_ACT;
++			end
++
++			// -- Refresh ------------------------------------------
++			//
++			// No PRECHARGE ALL first: auto-precharge means no row is
++			// ever left open, so every bank is already idle here.
++			S_REF: begin
++				{phy_cs_n_o, phy_ras_n_o, phy_cas_n_o, phy_we_n_o} <= CMD_REF;
++				phy_ba_o <= 3'd0;
++				phy_a_o <= 16'd0;
++				wait_ctr <= CYC_RFC[19:0];
++				ret_state <= S_IDLE;
++				state <= S_WAIT;
++			end
++
++			// -- Access -------------------------------------------
++			S_ACT: begin
++				{phy_cs_n_o, phy_ras_n_o, phy_cas_n_o, phy_we_n_o} <= CMD_ACT;
++				phy_ba_o <= req_bank;
++				phy_a_o <= {{(16-ROW_BITS){1'b0}}, req_row};
++				wait_ctr <= CYC_RCD[19:0];
++				// A write whose block is already in the buffer needs
++				// no read: merge and write. Consecutive stores inside
++				// one block therefore cost a write each, not a read
++				// and a write each, which is the common case for a
++				// write-through cache walking memory.
++				// A flush reads only when the register does not
++				// have the whole block.
++				if (fb_rd)
++					ret_state <= S_FB_RD;
++				else if (wc_flushing)
++					ret_state <= rdbuf_valid ? S_WR : S_RMW_RD;
++				else
++					ret_state <= req_we ? ((rdbuf_hit || wr_noread_i) ? S_WR : S_RMW_RD)
++					                    : S_RD;
++				state <= S_WAIT;
++			end
++
++			// -- read-modify-write --------------------------------
++			//
++			// READ with auto-precharge, exactly as S_RD does.
++			S_RMW_RD: begin
++				{phy_cs_n_o, phy_ras_n_o, phy_cas_n_o, phy_we_n_o} <= CMD_RD;
++				phy_ba_o <= req_bank;
++				phy_a_o <= {{(16-11){1'b0}}, 1'b1,
++				            req_col[COL_BITS-1:0]};
++				phy_rden_o <= 1'b1;
++				rd_timer <= RD_TIMEOUT[10:0];
++				state <= S_RMW_WAIT;
++			end
++
++			S_RMW_WAIT: begin
++				if (phy_rvalid_i) begin
++					// Store the block as read. The merge happens in
++					// ONE place, S_WR, whether the block arrived here
++					// or was already held.
++					// A flush keeps the bytes it holds newer.
++					rdbuf_data <= wc_flushing ? wc_fill : phy_rdata_i;
++					rdbuf_tag <= {req_row, req_bank,
++					              req_col[COL_BITS-1:3]};
++					rdbuf_valid <= 1'b1;
++					// Auto-precharge closed the row behind that read,
++					// so the write needs a fresh ACTIVATE.
++					wait_ctr <= CYC_RD_BUSY[19:0];
++					ret_state <= S_RMW_ACT;
++					state <= S_WAIT;
++				end else if (rd_timer == 11'd0) begin
++					// The PHY never answered. Do NOT write: a
++					// read-modify-write that cannot read has nothing
++					// safe to write, and guessing destroys the
++					// fifteen bytes it was not asked to change.
++					// A flush acknowledges nothing (no request is
++					// its own) and loses what it held: there was no
++					// safe way to write it.
++					rd_timeout_o <= 1'b1;
++					wb_ack_o <= !wc_flushing;
++					wb_dat_o <= 32'hdeadbe00;
++					rdbuf_valid <= 1'b0;
++					wc_dirty <= 1'b0;
++					wc_bv <= 16'd0;
++					wc_flushing <= 1'b0;
++					state <= S_IDLE;
++				end else begin
++					rd_timer <= rd_timer - 11'd1;
++				end
++			end
++
++			S_RMW_ACT: begin
++				{phy_cs_n_o, phy_ras_n_o, phy_cas_n_o, phy_we_n_o} <= CMD_ACT;
++				phy_ba_o <= req_bank;
++				phy_a_o <= {{(16-ROW_BITS){1'b0}}, req_row};
++				wait_ctr <= CYC_RCD[19:0];
++				ret_state <= S_WR;
++				state <= S_WAIT;
++			end
++
++			// READ with auto-precharge: A10 high, column below it.
++			// A[9:0] is the column for a 10-bit-column part, and A10
++			// is the auto-precharge flag, which is why the column
++			// cannot simply be placed at A[COL_BITS-1:0] on a part
++			// with more column bits.
++			S_RD: begin
++				rd_timer <= RD_TIMEOUT;
++				{phy_cs_n_o, phy_ras_n_o, phy_cas_n_o, phy_we_n_o} <= CMD_RD;
++				phy_ba_o <= req_bank;
++				phy_a_o <= {5'd0, 1'b1, req_col};
++				phy_rden_o <= 1'b1;
++				state <= S_RD_WAIT;
++			end
++
++			// The PHY announces the data. Nothing here counts CAS
++			// latency; see this file's header for why.
++			S_RD_WAIT: begin
++				if (!phy_rvalid_i && rd_timer == 11'd0) begin
++					rd_timeout_o <= 1'b1;
++					wb_dat_o <= 32'hdeadbe00;
++					wb_ack_o <= 1'b1;
++					rdbuf_valid <= 1'b0;
++					state <= S_IDLE;
++				end else if (!phy_rvalid_i) begin
++					rd_timer <= rd_timer - 11'd1;
++				end else if (phy_rvalid_i) begin
++					// Keep the whole burst: the next three words of
++					// a line fill are already inside it.
++					rdbuf_data <= phy_rdata_i;
++					rdbuf_tag <= {req_row, req_bank,
++					              req_col[COL_BITS-1:3]};
++					rdbuf_valid <= 1'b1;
++					case (req_word)
++					2'd0: wb_dat_o <= phy_rdata_i[31:0];
++					2'd1: wb_dat_o <= phy_rdata_i[63:32];
++					2'd2: wb_dat_o <= phy_rdata_i[95:64];
++					default: wb_dat_o <= phy_rdata_i[127:96];
++					endcase
++					wb_ack_o <= 1'b1;
++					// The DRAM is still finishing its internal
++					// precharge; the bus transaction is done but the
++					// bank is not free yet.
++					wait_ctr <= CYC_RD_BUSY[19:0];
++					ret_state <= S_IDLE;
++					state <= S_WAIT;
++				end
++			end
++
++			// The scan-out's READ, with auto-precharge like the bus's.
++			S_FB_RD: begin
++				rd_timer <= RD_TIMEOUT;
++				{phy_cs_n_o, phy_ras_n_o, phy_cas_n_o, phy_we_n_o} <= CMD_RD;
++				phy_ba_o <= req_bank;
++				phy_a_o <= {5'd0, 1'b1, req_col};
++				phy_rden_o <= 1'b1;
++				state <= S_FB_WAIT;
++			end
++
++			// A read that times out is answered all the same, with
++			// whatever came last: a wrong block on the screen, not a
++			// screen that stops.
++			S_FB_WAIT: begin
++				if (phy_rvalid_i || rd_timer == 11'd0) begin
++					if (phy_rvalid_i) fb_dat_o <= phy_rdata_i;
++					else rd_timeout_o <= 1'b1;
++					fb_ack_o <= 1'b1;
++					fb_rd <= 1'b0;
++					// (the bus's request is seen again from here: a store
++					// may combine while the row closes)
++					req_busy <= 1'b0;
++					wait_ctr <= CYC_RD_BUSY[19:0];
++					ret_state <= S_IDLE;
++					state <= S_WAIT;
++				end else begin
++					rd_timer <= rd_timer - 11'd1;
++				end
++			end
++
++			// WRITE with auto-precharge. The whole merged block is
++			// handed to the PHY here, all sixteen bytes, nothing
++			// masked.
++			S_WR: begin
++				{phy_cs_n_o, phy_ras_n_o, phy_cas_n_o, phy_we_n_o} <= CMD_WR;
++				phy_ba_o <= req_bank;
++				phy_a_o <= {5'd0, 1'b1, req_col};
++				phy_wren_o <= 1'b1;
++
++				// All sixteen bytes, nothing masked.
++				//
++				// The block was either read and merged (S_RMW_WAIT)
++				// or was already held from an earlier access, and in
++				// both cases the bytes this store does not touch are
++				// the bytes memory already has. DM stays inactive:
++				// it is the one mechanism this design does not use,
++				// and therefore the one that cannot be misaligned.
++				// A flush writes the register as it is: no request
++				// of its own to merge, and none to acknowledge.
++				phy_wdata_o <= wc_flushing ? rdbuf_data : rmw_merged;
++				phy_wmask_o <= 16'd0;
++
++				// Keep the block. The next store to it needs no read,
++				// and the next load of it needs no access at all.
++				rdbuf_data <= wc_flushing ? rdbuf_data : rmw_merged;
++				rdbuf_tag <= {req_row, req_bank, req_col[COL_BITS-1:3]};
++				rdbuf_valid <= 1'b1;
++				wc_dirty <= 1'b0;
++				wc_bv <= 16'd0;
++				wc_flushing <= 1'b0;
++
++				wb_ack_o <= !wc_flushing;
++				wait_ctr <= CYC_WR_BUSY[19:0];
++				ret_state <= S_IDLE;
++				state <= S_WAIT;
++			end
++
++			// -- Generic wait -------------------------------------
++			S_WAIT: begin
++				if (wait_ctr <= 20'd1) begin
++					state <= ret_state;
++				end else begin
++					wait_ctr <= wait_ctr - 20'd1;
++				end
++				// Stores keep coming while the DRAM recovers from
++				// the last access: the register is free once a write
++				// has handed its block to the PHY, so a store it can
++				// take is taken now, not after the wait. Only on the
++				// way back to S_IDLE (never during power-on or a
++				// read-modify-write), and only one the register can
++				// take without a flush.
++				if (ret_state == S_IDLE && init_done_o && !wc_flushing &&
++				    wc_req && wb_we_i && wc_wr_take) begin
++					rdbuf_data <= wc_merged;
++					rdbuf_tag <= req_tag;
++					rdbuf_valid <= (wc_wr_same && rdbuf_valid) || (&wc_bv_next);
++					wc_bv <= wc_bv_next;
++					wc_dirty <= 1'b1;
++					wb_ack_o <= 1'b1;
++				end
++			end
++
++			default: state <= S_IDLE;
++
++			endcase
++
++		end
++
++	end
++
++	// phy_ready_i is consumed only as a gate on leaving reset; the
++	// ECP5 delay hardware must be up before any DQS-based capture can
++	// work, but nothing in the command sequence depends on it.
++	wire _unused;
++	assign _unused = &{1'b0, phy_ready_i, CYC_RC, CYC_RAS};
++
++	`undef NS2CK
++	`undef CK2CYC
++	`undef NS2CYC
++
++endmodule
++
++`default_nettype wire
+diff --git a/soc/sim/Makefile b/soc/sim/Makefile
+index 88ee287..7d07370 100644
+--- a/soc/sim/Makefile
++++ b/soc/sim/Makefile
+@@ -18,7 +18,7 @@ MAX    ?= 4000000000
+ Z   = $(CURDIR)/../ext/zeitlos/rtl
+ SOCRTL = $(CURDIR)/sim_soc.v $(CURDIR)/../rtl/kakao_soc.v $(CURDIR)/../rtl/k_uart.v $(CURDIR)/../rtl/k_port64.v $(wildcard $(CURDIR)/../rtl/cpu/kakao64/*.v) \
+ 	$(CURDIR)/../rtl/k_clint.v $(CURDIR)/../rtl/k_plic.v $(CURDIR)/../rtl/k_cache.v $(CURDIR)/../rtl/k_iop.v $(CURDIR)/../rtl/k_vcon.v \
+-	$(CURDIR)/../rtl/k_text.v $(CURDIR)/../rtl/k_virtio.v $(CURDIR)/sd_card.v $(CURDIR)/rmii_peer.v $(Z)/spim.v $(Z)/ethmac_rmii.v $(Z)/cpu/picorv32/picorv32.v $(Z)/cache_one.v $(filter-out %/sim_top.v,$(RTL))
++	$(CURDIR)/../rtl/k_text.v $(CURDIR)/../rtl/k_fb.v $(CURDIR)/../rtl/k_virtio.v $(CURDIR)/sd_card.v $(CURDIR)/rmii_peer.v $(Z)/spim.v $(Z)/ethmac_rmii.v $(Z)/cpu/picorv32/picorv32.v $(Z)/cache_one.v $(filter-out %/sim_top.v,$(RTL))
+ CROSS ?= riscv64-unknown-elf-
+ CACHE_KB ?= 8
+ # SOCG: more parameters for sim_soc (-GTERMINAL=1: with the terminal, and
+@@ -134,7 +134,25 @@ usb-late:
+ 		$(Z)/cpu/picorv32/picorv32.v $(USBRTL) $(Z)/tb/tb_usb_device.v
+ 	vvp -n obj/tb_iop_usb_late | grep -v "^\[\|VCD"
+ 
+-.PHONY: usb usb-late
++# the keyboard and the mouse as the host's virtio input devices (fw/iop
++# with INPUT=1): see tb_iop_input.v
++input:
++	@mkdir -p obj
++	$(MAKE) -C ../fw/iop INPUT=1
++	iverilog -g2005 -o obj/tb_iop_input -s tb_iop_input tb_iop_input.v ../rtl/k_iop.v ../rtl/k_virtio.v \
++		$(Z)/cpu/picorv32/picorv32.v $(USBRTL) $(Z)/tb/tb_usb_device.v
++	vvp -n obj/tb_iop_input | grep -v "^\[\|VCD"
++
++# the DDR3 controller's port for the framebuffer's scan-out
++# (rtl/mem/k_ddr3_ctrl.v) against Zeitlos's model of the DRAM: see
++# tb_ddr3_fb.v
++ddr3fb:
++	@mkdir -p obj
++	iverilog -g2012 -o obj/tb_ddr3_fb tb_ddr3_fb.v $(Z)/tb/ddr3_model.v $(Z)/tb/ddr3_phy_sim.v \
++		../rtl/mem/k_ddr3_ctrl.v
++	vvp -n obj/tb_ddr3_fb | grep -v "ddr3_model: M\|ZQCL\|banks"
++
++.PHONY: usb usb-late input ddr3fb
+ 
+ # the SOC on Zeitlos's SDRAM controller and its model of the SDRAM,
+ # running fw/memtest (Icarus): see tb_soc_sdram.v
+diff --git a/soc/sim/sim_main.cpp b/soc/sim/sim_main.cpp
+index 54bede1..65bc127 100644
+--- a/soc/sim/sim_main.cpp
++++ b/soc/sim/sim_main.cpp
+@@ -115,6 +115,8 @@ static bool ends(const std::string &s, const char *e) {
+ 	return s.size() >= n && !s.compare(s.size() - n, n, e);
+ }
+ 
++static const char *frame_to;		// +frame=: where the screen's picture goes
++
+ int main(int argc, char **argv) {
+ 	Verilated::commandArgs(argc, argv);
+ 	Vsim_top *top = new Vsim_top;
+@@ -160,6 +162,8 @@ int main(int argc, char **argv) {
+ 			linger = strtoull(argv[i] + 8, 0, 0);
+ 		} else if (!strncmp(argv[i], "+sdout=", 7)) {
+ 			sdout = argv[i] + 7;
++		} else if (!strncmp(argv[i], "+frame=", 7)) {
++			frame_to = argv[i] + 7;
+ 		} else if (!strncmp(argv[i], "+type=", 6)) {
+ 			FILE *f = fopen(argv[i] + 6, "r");
+ 			if (!f) { perror(argv[i] + 6); return 2; }
+@@ -177,6 +181,25 @@ int main(int argc, char **argv) {
+ 		}
+ 	}
+ 
++#ifdef SOC
++	// the picture (+frame=<name>): the pixels that are not blanked, as
++	// they come, a frame at a time; the last whole frame is written to
++	// <name>.ppm each time a line of the script is typed and at the end
++	std::vector<unsigned char> fr_now, fr_last;
++	int fr_pclk = 0, fr_vs = 1, fr_n = 0;
++	unsigned long long fr_from = 0;
++	auto fr_write = [&](void) {
++		if (!frame_to || fr_last.size() != 640 * 480 * 3) return;
++		std::string name = std::string(frame_to) + "-" + std::to_string(fr_n++) + ".ppm";
++		FILE *f = fopen(name.c_str(), "wb");
++		if (!f) return;
++		fprintf(f, "P6\n640 480\n255\n");
++		fwrite(&fr_last[0], 1, fr_last.size(), f);
++		fclose(f);
++		fprintf(stderr, "sim: the screen is in %s\n", name.c_str());
++	};
++#endif
++
+ 	std::string tail;			// the last characters printed
+ 	size_t next = 0;			// the script line to type next
+ 	std::string typing;			// what is left of the line being typed
+@@ -191,19 +214,44 @@ int main(int argc, char **argv) {
+ 
+ 	while (cyc < max && !top->poweroff && !Verilated::gotFinish()) {
+ 		top->clk = 1; top->eval();
++#ifdef SOC
++		if (frame_to) {
++			if (top->vid_pclk && !fr_pclk) {
++				if (!top->vid_blank) {
++					fr_now.push_back(top->vid_r); fr_now.push_back(top->vid_g); fr_now.push_back(top->vid_b);
++				}
++				if (!top->vid_vsync && fr_vs) {		// the frame is over
++					if (fr_now.size() == 640 * 480 * 3) fr_last.swap(fr_now);
++					fr_now.clear();
++				}
++				fr_vs = top->vid_vsync;
++			}
++			fr_pclk = top->vid_pclk;
++		}
++#endif
+ 		top->rx_put = 0;
+ 		if (top->tx_put) {
+ 			putchar(top->tx_char); fflush(stdout);
+ 			tail += (char)top->tx_char;
+ 			if (tail.size() > 64) tail.erase(0, tail.size() - 64);
+ 			quiet = 0;
+-			armed = ends(tail, "# ") || ends(tail, "$ ") || ends(tail, "login: ");
++			armed = ends(tail, "# ") || ends(tail, "% ") || ends(tail, "$ ") || ends(tail, "login: ");
+ 		} else {
+ 			quiet++;
+ 		}
++#ifdef SOC
++		// (+frame=: and every quarter of a thousand million cycles once
++		// the script's last line is typed, to watch what it started:
++		// a window system gives no prompt back)
++		if (frame_to && fr_from && cyc > fr_from && (cyc - fr_from) % 250000000 == 0) fr_write();
++		if (frame_to && !fr_from && !script.empty() && next >= script.size() && typing.empty()) fr_from = cyc;
++#endif
+ 		// type the next line once the prompt has stood for a while
+ 		if (vwait && cyc > vwait) { vwait = 0; armed = true; }
+ 		if (typing.empty() && armed && !vwait && quiet > 2000000) {
++#ifdef SOC
++			if (next < script.size()) fr_write();
++#endif
+ 			if (next < script.size()) { typing = script[next++]; armed = false; }
+ 			else if (!script.empty() && !done_at) done_at = cyc;
+ 		}
+@@ -274,6 +322,8 @@ int main(int argc, char **argv) {
+ 	fprintf(stderr, "sim: memory writes: %llu into another block, %llu into the held one, %llu cycles\n",
+ 		(unsigned long long)m->n_wr_new, (unsigned long long)m->n_wr_same, (unsigned long long)m->c_wr);
+ 	fprintf(stderr, "sim: memory blocks written by write combining: %llu\n", (unsigned long long)m->n_flush);
++	if (m->n_fb) fprintf(stderr, "sim: memory blocks read for the screen: %llu\n", (unsigned long long)m->n_fb);
++	fr_write();
+ #endif
+ 	top->final();
+ 	delete top;
+diff --git a/soc/sim/sim_soc.v b/soc/sim/sim_soc.v
+index 7a155a9..fcc7ee6 100644
+--- a/soc/sim/sim_soc.v
++++ b/soc/sim/sim_soc.v
+@@ -47,6 +47,8 @@ module sim_soc #(
+ `define SIM_SD_MB 16
+ `endif
+ 	parameter SD_MB = `SIM_SD_MB,		// (make ... SOCD=-DSIM_SD_MB=96)
++	parameter FB = 0,				// a framebuffer in the top 4 MB of main memory (with TERMINAL
++								// and KCACHE), shown from reset: +frame= writes the picture out
+ 	parameter IOP_WORDS = 11264,
+ 	parameter IOP_HEX = "../fw/iop/iop.hex"	// (without TERMINAL: iop-headless.hex, 2048 words)
+ ) (
+@@ -64,9 +66,28 @@ module sim_soc #(
+ 	output       eth_tx_end,
+ 	input        eth_rx_go,
+ 	input [11:0] eth_rx_len,
+-	output       eth_rx_busy
++	output       eth_rx_busy,
++	// the picture, a pixel every second cycle of clk (the simulation's
++	// pixel clock is half of clk, 24 MHz for the boards' 25)
++	output        vid_pclk,
++	output  [7:0] vid_r,
++	output  [7:0] vid_g,
++	output  [7:0] vid_b,
++	output        vid_hsync,
++	output        vid_vsync,
++	output        vid_blank
+ );
+ 
++	reg pclk = 1'b0;
++	always @(posedge clk) pclk <= !pclk;
++	assign vid_pclk = pclk;
++
++	// main memory's second port, the framebuffer's (below)
++	wire         fb_stb;
++	wire  [24:0] fb_adr;
++	reg          fb_ack;
++	reg  [127:0] fb_dat;
++
+ 	localparam MEM_WORDS = MEM_MB * 262144;
+ 
+ 	wire [26:0] mem_adr;
+@@ -88,6 +109,7 @@ module sim_soc #(
+ 		.KCACHE(KCACHE), .I_KB(I_KB), .D_KB(D_KB), .BTFN(BTFN), .FAST_MUL(FAST_MUL), .BTB_BITS(BTB_BITS), .TLB_BITS(TLB_BITS),
+ 		.CPU64(CPU64), .UART_PIPE(UART_PIPE), .TERMINAL(TERMINAL), .TERMS(TERMS), .HIST(HIST), .IOP_HEX(IOP_HEX), .FONT_HEX("obj/k_font.hex"),
+ 		.VIRTIO(VIRTIO), .IOP_WORDS(IOP_WORDS),
++		.FB(FB), .FB_AT(MEM_MB / 4 - 1), .FB_SHOW(FB),
+ 		.CACHE_KB(CACHE_KB),
+ 		.ROM_HEX(BOOT_HEX),
+ 		.UART_DIV(2),
+@@ -103,7 +125,9 @@ module sim_soc #(
+ 		.uart0_rx(u_rx), .uart0_tx(u_tx),
+ 		.con_tx_valid(pp_tx_v), .con_tx_data(), .con_tx_ready(pp_tx_rdy),
+ 		.con_rx_valid(pp_v), .con_rx_data(pp_d), .con_rx_ready(pp_rdy),
+-		.pclk(clk), .vid_r(), .vid_g(), .vid_b(), .vid_hsync(), .vid_vsync(), .vid_blank(),
++		.fb_stb_o(fb_stb), .fb_adr_o(fb_adr), .fb_ack_i(fb_ack), .fb_dat_i(fb_dat),
++		.pclk(pclk), .vid_r(vid_r), .vid_g(vid_g), .vid_b(vid_b),
++		.vid_hsync(vid_hsync), .vid_vsync(vid_vsync), .vid_blank(vid_blank),
+ 		.iop_trap(iop_trap),
+ 		.iox_adr_o(iox_adr), .iox_dat_o(iox_dat_w), .iox_dat_i(iox_dat_r),
+ 		.iox_we_o(iox_we), .iox_sel_o(iox_sel), .iox_stb_o(iox_stb), .iox_ack_i(iox_ack),
+@@ -188,6 +212,18 @@ module sim_soc #(
+ 	reg        m_blk_v;
+ 	wire       m_same = m_blk_v && (m_blk == mem_adr[26:2]);
+ 
++	// The framebuffer's port: a block read whole, 13 cycles as the DDR3
++	// controller's (rtl/mem/k_ddr3_ctrl.v) takes with the row's closing, taken
++	// before the CPU's request when both wait, and never in the middle
++	// of an access or of a block's writing. It leaves the block register
++	// alone, so what it reads is memory as it was written: a store
++	// still in the block register reaches the screen a frame later.
++	reg        f_busy;
++	reg  [7:0] f_wait;
++	wire       f_start = fb_stb && !fb_ack && !f_busy && !m_busy && (m_fl == 0);
++	wire [25:0] f_w = { fb_adr[23:0], 2'b00 };
++	reg [63:0] n_fb /*verilator public*/;
++
+ 	// what main memory was asked, and the cycles it took
+ 	reg [63:0] n_rd_new /*verilator public*/, n_rd_same /*verilator public*/;
+ 	reg [63:0] n_wr_new /*verilator public*/, n_wr_same /*verilator public*/;
+@@ -246,6 +282,7 @@ module sim_soc #(
+ 		ext_ack <= 1'b0;
+ 		if (rst) begin
+ 			m_busy <= 1'b0;
++			f_busy <= 1'b0; fb_ack <= 1'b0; n_fb <= 0;
+ 			m_blk_v <= 1'b0;
+ 			m_dirty <= 1'b0; m_mask <= 0; m_idle <= 0; m_fl <= 0; n_flush <= 0;
+ 			n_rd_new <= 0; n_rd_same <= 0; n_wr_new <= 0; n_wr_same <= 0; c_rd <= 0; c_wr <= 0;
+@@ -263,10 +300,23 @@ module sim_soc #(
+ 				m_fl <= m_flc; m_dirty <= 1'b0; m_idle <= 0; n_flush <= n_flush + 1;
+ 			end else m_idle <= m_idle + 4'd1;
+ 
++			fb_ack <= 1'b0;
++			if (f_start) begin
++				f_busy <= 1'b1; f_wait <= RD_NEW + 2;	// (10 cycles to the data, 3 for the row to close)
++				n_fb <= n_fb + 1;
++			end else if (f_busy) begin
++				if (f_wait != 0) f_wait <= f_wait - 8'd1;
++				else begin
++					f_busy <= 1'b0;
++					fb_ack <= 1'b1;
++					fb_dat <= { ram[f_w + 26'd3], ram[f_w + 26'd2], ram[f_w + 26'd1], ram[f_w] };
++				end
++			end
++
+ 			if (mem_stb && !mem_ack) begin
+ 				if (mem_we) c_wr <= c_wr + 1; else c_rd <= c_rd + 1;
+-				if (m_fl != 0) begin
+-					// still writing
++				if (m_fl != 0 || f_busy || (f_start && !m_busy)) begin
++					// still writing, or the framebuffer's block is being read
+ 				end else if (!m_busy) begin
+ 					m_busy <= 1'b1;
+ 					if (mem_we) begin if (m_same) n_wr_same <= n_wr_same + 1; else n_wr_new <= n_wr_new + 1; end
+diff --git a/soc/sim/tb_ddr3_fb.v b/soc/sim/tb_ddr3_fb.v
+new file mode 100644
+index 0000000..a73e9e1
+--- /dev/null
++++ b/soc/sim/tb_ddr3_fb.v
+@@ -0,0 +1,263 @@
++/*
++ * The scan-out port of the DDR3 controller (rtl/mem/k_ddr3_ctrl.v, fb_*)
++ * against Zeitlos's model of the DRAM, which checks the protocol's
++ * timing: blocks are read on it at the rate a screen of 640 by 480
++ * pixels of 16 bits reads them while a line is drawn, one every 16
++ * cycles, while the bus reads and writes other memory --
++ * the same rows and others, stores that combine and stores that do
++ * not. Every block must come as it was written, the bus's own data
++ * must stay right, the model must have nothing to complain of, and no
++ * block may take longer than the reader's queue allows.
++ *
++ *   make ddr3fb        (in soc/sim)
++ */
++
++`timescale 1ps/1ps
++
++module tb_ddr3_fb;
++
++	localparam TCK_PS = 10417;
++	localparam ROW_BITS = 15;
++	localparam COL_BITS = 10;
++	localparam BANK_BITS = 3;
++	localparam ROW_ALIAS = 6;
++	localparam NFB = 96;			// the blocks of the "screen"
++	localparam [24:0] FB_AT = 25'h1fc0000 >> 2;	// far from where the bus works...
++	localparam LATE = 64;			// cycles: k_fb.v's queue holds 8 blocks, 128 cycles of picture
++
++	reg ck, clk, rst;
++	reg  [26:0] wb_adr;
++	reg  [31:0] wb_dat_w;
++	wire [31:0] wb_dat_r;
++	reg         wb_we, wb_stb;
++	reg   [3:0] wb_sel;
++	wire        wb_ack;
++	reg         fb_stb;
++	reg  [24:0] fb_adr;
++	wire        fb_ack;
++	wire [127:0] fb_dat;
++	wire init_done, rd_timeout;
++
++	wire c_reset_n, c_cke, c_odt, c_cs_n, c_ras_n, c_cas_n, c_we_n;
++	wire [15:0] c_a;
++	wire [2:0] c_ba;
++	wire c_wren, c_rden, c_rvalid;
++	wire [127:0] c_wdata, c_rdata;
++	wire [15:0] c_wmask;
++
++	wire d_reset_n, d_cke, d_odt, d_cs_n, d_ras_n, d_cas_n, d_we_n;
++	wire [15:0] d_a;
++	wire [2:0] d_ba;
++	wire [1:0] d_dm;
++	wire [15:0] d_dq;
++	wire [1:0] d_dqs;
++
++	integer errors, i, k, n, seed, worst, t, nblk;
++	reg [31:0] got;
++	reg [31:0] shadow [0:255];
++	reg fb_go, fb_done;
++
++	initial begin ck = 1'b0; forever #(TCK_PS / 2) ck = ~ck; end
++	initial begin
++		clk = 1'b0;
++		@(negedge ck);
++		forever begin @(posedge ck); clk = 1'b1; @(posedge ck); clk = 1'b0; end
++	end
++
++	k_ddr3_ctrl #(
++		.ROW_BITS(ROW_BITS), .COL_BITS(COL_BITS), .BANK_BITS(BANK_BITS),
++		.TRFC_NS(260), .CLK_MHZ(48), .WCOMBINE(1), .INIT_DIV(1000)
++	) dut (
++		.clk_i(clk), .rst_i(rst),
++		.wb_adr_i(wb_adr), .wb_dat_i(wb_dat_w), .wb_dat_o(wb_dat_r),
++		.wb_we_i(wb_we), .wb_sel_i(wb_sel), .wb_stb_i(wb_stb), .wb_cyc_i(wb_stb),
++		.wb_ack_o(wb_ack),
++		.fb_stb_i(fb_stb), .fb_adr_i(fb_adr), .fb_ack_o(fb_ack), .fb_dat_o(fb_dat),
++		.phy_ready_i(1'b1), .init_done_o(init_done), .rd_timeout_o(rd_timeout),
++		.no_refresh_i(1'b0), .wr_noread_i(1'b0), .rdbuf_off_i(1'b0),
++		.phy_reset_n_o(c_reset_n), .phy_cke_o(c_cke), .phy_odt_o(c_odt),
++		.phy_cs_n_o(c_cs_n), .phy_ras_n_o(c_ras_n), .phy_cas_n_o(c_cas_n),
++		.phy_we_n_o(c_we_n), .phy_a_o(c_a), .phy_ba_o(c_ba),
++		.phy_wren_o(c_wren), .phy_wdata_o(c_wdata), .phy_wmask_o(c_wmask),
++		.phy_rden_o(c_rden), .phy_rvalid_i(c_rvalid), .phy_rdata_i(c_rdata)
++	);
++
++	ddr3_phy_sim #(
++		.TCK_PS(TCK_PS),
++		.CL(6),
++		.CWL(6)
++	) phy (
++		.clk_i(clk),
++		.ck_i(ck),
++		.rst_i(rst),
++		.ctl_reset_n_i(c_reset_n),
++		.ctl_cke_i(c_cke),
++		.ctl_odt_i(c_odt),
++		.ctl_cs_n_i(c_cs_n),
++		.ctl_ras_n_i(c_ras_n),
++		.ctl_cas_n_i(c_cas_n),
++		.ctl_we_n_i(c_we_n),
++		.ctl_a_i(c_a),
++		.ctl_ba_i(c_ba),
++		.ctl_wren_i(c_wren),
++		.ctl_wdata_i(c_wdata),
++		.ctl_wmask_i(c_wmask),
++		.ctl_rden_i(c_rden),
++		.ctl_rvalid_o(c_rvalid),
++		.ctl_rdata_o(c_rdata),
++		.ddr_reset_n(d_reset_n),
++		.ddr_cke(d_cke),
++		.ddr_odt(d_odt),
++		.ddr_cs_n(d_cs_n),
++		.ddr_ras_n(d_ras_n),
++		.ddr_cas_n(d_cas_n),
++		.ddr_we_n(d_we_n),
++		.ddr_a(d_a),
++		.ddr_ba(d_ba),
++		.ddr_dm(d_dm),
++		.ddr_dq(d_dq),
++		.ddr_dqs(d_dqs)
++	);
++
++	ddr3_model #(
++		.ROW_BITS(ROW_BITS),
++		.COL_BITS(COL_BITS),
++		.BANK_BITS(BANK_BITS),
++		.ROW_ALIAS(ROW_ALIAS),
++		.TCK_PS(TCK_PS)
++	) dram (
++		.ck(ck),
++		.reset_n(d_reset_n),
++		.cke(d_cke),
++		.cs_n(d_cs_n),
++		.ras_n(d_ras_n),
++		.cas_n(d_cas_n),
++		.we_n(d_we_n),
++		.a(d_a),
++		.ba(d_ba),
++		.dm(d_dm),
++		.dq(d_dq),
++		.dqs(d_dqs)
++	);
++
++	task wb_write;
++		input [26:0] addr;
++		input [31:0] data;
++		input  [3:0] sel;
++	begin
++		@(posedge clk);
++		wb_adr <= addr; wb_dat_w <= data; wb_sel <= sel; wb_we <= 1'b1; wb_stb <= 1'b1;
++		@(posedge clk);
++		while (!wb_ack) @(posedge clk);
++		wb_stb <= 1'b0; wb_we <= 1'b0;
++		@(posedge clk);
++	end
++	endtask
++
++	task wb_read;
++		input [26:0] addr;
++		output [31:0] data;
++	begin
++		@(posedge clk);
++		wb_adr <= addr; wb_sel <= 4'hf; wb_we <= 1'b0; wb_stb <= 1'b1;
++		@(posedge clk);
++		while (!wb_ack) @(posedge clk);
++		data = wb_dat_r;
++		wb_stb <= 1'b0;
++		@(posedge clk);
++	end
++	endtask
++
++	// what the screen's word w holds
++	function [31:0] pat;
++		input [31:0] w;
++		pat = 32'hfb000000 ^ (w * 32'h9e3779b1);
++	endfunction
++
++	// the reader: the screen's blocks, round and round, one every 16
++	// cycles (or as soon as the last has come, when that was later)
++	integer fb_t, fb_n, fb_b;
++	initial begin
++		fb_stb = 1'b0; fb_adr = 25'd0; fb_done = 1'b0; worst = 0; nblk = 0;
++		wait (fb_go === 1'b1);
++		fb_b = 0;
++		while (fb_go) begin
++			@(posedge clk);
++			fb_adr <= FB_AT + fb_b; fb_stb <= 1'b1;
++			fb_t = 0;
++			@(posedge clk);
++			while (!fb_ack) begin fb_t = fb_t + 1; @(posedge clk); end
++			fb_stb <= 1'b0;
++			if (fb_t > worst) worst = fb_t;
++			nblk = nblk + 1;
++			for (fb_n = 0; fb_n < 4; fb_n = fb_n + 1)
++				if (fb_dat[fb_n*32 +: 32] !== pat(fb_b * 4 + fb_n)) begin
++					if (errors < 10)
++						$display("  FAIL screen block %0d word %0d: %08h, not %08h",
++							fb_b, fb_n, fb_dat[fb_n*32 +: 32], pat(fb_b * 4 + fb_n));
++					errors = errors + 1;
++				end
++			fb_b = (fb_b + 1) % NFB;
++			while (fb_t < 14) begin fb_t = fb_t + 1; @(posedge clk); end
++		end
++		fb_done = 1'b1;
++	end
++
++	initial begin
++		errors = 0; seed = 7; fb_go = 1'b0;
++		wb_stb = 1'b0; wb_we = 1'b0; wb_adr = 27'd0; wb_dat_w = 32'd0; wb_sel = 4'd0;
++		rst = 1'b1;
++		repeat (8) @(posedge clk);
++		rst = 1'b0;
++		wait (init_done);
++		repeat (4) @(posedge clk);
++
++		// the screen, written through the bus
++		for (i = 0; i < NFB * 4; i = i + 1)
++			wb_write({ FB_AT, 2'b00 } + i, pat(i), 4'hf);
++		// (and let the last block reach the DRAM)
++		repeat (40) @(posedge clk);
++		for (i = 0; i < 256; i = i + 1) shadow[i] = 32'hxxxxxxxx;
++
++		fb_go = 1'b1;
++		// the bus meanwhile: 256 words in two places, one of them in
++		// the screen's own rows (its bank, the blocks after it)
++		for (n = 0; n < 3000; n = n + 1) begin
++			k = $random(seed) & 255;
++			t = $random(seed);
++			if (t[1:0] == 2'd0 && shadow[k] !== 32'hxxxxxxxx) begin
++				wb_read(k[7] ? { FB_AT, 2'b00 } + NFB * 4 + k[6:0] : 27'h0004000 + k[6:0], got);
++				if (got !== shadow[k]) begin
++					if (errors < 10) $display("  FAIL bus word %0d: %08h, not %08h", k, got, shadow[k]);
++					errors = errors + 1;
++				end
++			end else begin
++				wb_write(k[7] ? { FB_AT, 2'b00 } + NFB * 4 + k[6:0] : 27'h0004000 + k[6:0], t, 4'hf);
++				shadow[k] = t;
++			end
++			// now and then the bus rests, and a combined block goes out
++			if (t[9:6] == 4'd0) repeat (20) @(posedge clk);
++		end
++		fb_go = 1'b0;
++		wait (fb_done);
++
++		$display("screen: %0d blocks read, the slowest %0d cycles", nblk, worst);
++		if (worst > LATE) begin
++			$display("  FAIL: a block took more than %0d cycles", LATE);
++			errors = errors + 1;
++		end
++		if (rd_timeout) begin $display("  FAIL: a read timed out"); errors = errors + 1; end
++		if (dram.errors != 0) $display("  FAIL: the model reports %0d errors", dram.errors);
++		errors = errors + dram.errors;
++		if (errors == 0) $display("== PASS: no errors ==");
++		else $display("== FAIL: %0d error(s) ==", errors);
++		$finish;
++	end
++
++	initial begin
++		#(64'd40000000000);
++		$display("== FAIL: timed out == state %0d ret %0d wb_stb %b we %b adr %h fb_stb %b fb_ack %b n %0d nblk %0d busy %b dirty %b", dut.state, dut.ret_state, wb_stb, wb_we, wb_adr, fb_stb, fb_ack, n, nblk, dut.req_busy, dut.wc_dirty);
++		$finish;
++	end
++
++endmodule
+diff --git a/soc/sim/tb_iop_input.v b/soc/sim/tb_iop_input.v
+new file mode 100644
+index 0000000..9f440ad
+--- /dev/null
++++ b/soc/sim/tb_iop_input.v
+@@ -0,0 +1,501 @@
++/*
++ * The I/O processor's keyboard and mouse as virtio input devices
++ * (fw/iop, INPUT=1: vinput.c): k_iop and its program, Zeitlos's USB
++ * host controller with its model of a USB device as a keyboard and as a
++ * mouse (as tb_iop_usb.v has them), the virtio slots (k_virtio.v), and
++ * a little of the host: 16 KB of its memory and what a driver does to
++ * a slot's registers.
++ *
++ * The host asks both devices what they are (their names, the keys of
++ * one, the range of the other's pointer), gives each an event queue of
++ * eight buffers, and then:
++ *
++ *   - a key at a terminal is typed, and the host's device says nothing;
++ *   - Super with 0, the graphics screen: the same key is two events of
++ *     the keyboard's, down and up, with Linux's key code, and nothing
++ *     is typed; Shift goes down before its key and up after it;
++ *   - the mouse moved and its button pressed are the pointer's place
++ *     and BTN_LEFT, and the text mode has no pointer to show;
++ *   - the menus open over it (a Super key alone) and take the keys;
++ *   - the driver lights Caps Lock;
++ *   - Super with 1: a terminal again, and the key is typed.
++ *
++ *   make input        (in soc/sim)
++ */
++
++`timescale 1ns/1ps
++
++module tb_iop_input;
++
++	parameter FW = "../fw/iop/iop.hex";
++
++	reg clk = 0, rst = 1;
++	always #10.4167 clk = ~clk;			// 48 MHz
++
++	wire [17:0] t_adr; wire [31:0] t_dw, t_dr; wire t_we, t_stb, t_ack; wire [3:0] t_sel;
++	wire [10:0] u_adr; wire [31:0] u_dw, u_dr; wire u_we, u_stb, u_ack; wire [3:0] u_sel;
++	wire key_stb; wire [7:0] key_dat; wire [3:0] key_id;
++	wire trap, p_req, x_stb;
++
++	// the virtio slots, and the host's side of them (the tasks below)
++	wire        v_req, v_we;
++	wire  [2:0] v_adr;
++	wire [31:0] v_wdat, v_rdat;
++	reg         h_stb = 0, h_we = 0;
++	reg   [2:0] h_slot = 0;
++	reg   [9:0] h_adr = 0;
++	reg   [3:0] h_sel = 0;
++	reg  [31:0] h_wdat = 0;
++	wire        h_ack;
++	wire [31:0] h_rdat;
++	wire  [3:0] v_irq;
++	k_virtio #(.N(4)) virtio (
++		.clk(clk), .rst(rst),
++		.h_stb(h_stb), .h_we(h_we), .h_slot(h_slot), .h_adr(h_adr), .h_sel(h_sel), .h_wdat(h_wdat),
++		.h_ack(h_ack), .h_rdat(h_rdat), .h_hold(), .irq(v_irq),
++		.i_req(v_req), .i_we(v_we), .i_adr(v_adr), .i_wdat(v_wdat), .i_rdat(v_rdat)
++	);
++
++	// (a request's registers are unknown until the first request, and the
++	// I/O processor reads them every turn: in a simulation with unknown
++	// values that stops its model, as the USB controller's buffer did)
++	initial begin
++		virtio.q_we = 0; virtio.q_slot = 0; virtio.q_adr = 0; virtio.q_sel = 0; virtio.q_wdat = 0;
++		virtio.h_rdat = 0;
++	end
++
++	// the host's main memory, as much of it as the queues need: 16 KB
++	// at 0x8000_0000, answered the cycle after it is asked
++	reg  [31:0] hmem [0:4095];
++	wire [28:0] p_adr;
++	wire        p_we;
++	wire  [3:0] p_sel;
++	wire [31:0] p_wdat;
++	reg         p_ack = 0;
++	reg  [31:0] p_rdat = 0;
++	integer hi;
++	initial for (hi = 0; hi < 4096; hi = hi + 1) hmem[hi] = 32'd0;
++	always @(posedge clk) begin
++		p_ack <= p_req && !p_ack;
++		if (p_req && !p_ack) begin
++			p_rdat <= hmem[p_adr[13:2]];
++			if (p_we) begin
++				if (p_sel[0]) hmem[p_adr[13:2]][7:0]   <= p_wdat[7:0];
++				if (p_sel[1]) hmem[p_adr[13:2]][15:8]  <= p_wdat[15:8];
++				if (p_sel[2]) hmem[p_adr[13:2]][23:16] <= p_wdat[23:16];
++				if (p_sel[3]) hmem[p_adr[13:2]][31:24] <= p_wdat[31:24];
++			end
++		end
++	end
++
++	// (four consoles: the keys go to the console of the terminal shown)
++	k_iop #(.FW_HEX(FW), .USB(1), .TERMS(4)) iop (
++		.clk(clk), .rst(rst),
++		.con_stb(1'b0), .con_dat(8'd0), .con_id(4'd0), .con_full(),
++		.key_stb(key_stb), .key_dat(key_dat), .key_id(key_id), .key_busy(10'd0),
++		.t_adr_o(t_adr), .t_dat_o(t_dw), .t_dat_i(t_dr), .t_we_o(t_we), .t_sel_o(t_sel),
++		.t_stb_o(t_stb), .t_ack_i(t_ack),
++		.u_adr_o(u_adr), .u_dat_o(u_dw), .u_dat_i(u_dr), .u_we_o(u_we), .u_sel_o(u_sel),
++		.u_stb_o(u_stb), .u_ack_i(u_ack),
++		.v_req(v_req), .v_we(v_we), .v_adr(v_adr), .v_wdat(v_wdat), .v_rdat(v_rdat),
++		.p_req(p_req), .p_adr(p_adr), .p_we(p_we), .p_sel(p_sel), .p_wdat(p_wdat), .p_ack(p_ack), .p_rdat(p_rdat),
++		.x_adr_o(), .x_dat_o(), .x_dat_i(32'd0), .x_we_o(), .x_sel_o(), .x_stb_o(x_stb), .x_ack_i(x_stb),
++		.reset_o(),
++		.trap(trap)
++	);
++
++	// the text mode is not here (it is slow to simulate, and has its
++	// own test): what is written to its CTRL is kept
++	reg t_ack_r = 0;
++	reg [5:0] text_ctrl = 0;
++	reg [14:0] text_base = 0;
++	reg [15:0] text_ptr = 0;
++	reg [31:0] text_sel = 0;
++	reg        text_gfx = 0;		// GRAPHICS: the framebuffer is on the screen
++	assign t_ack = t_ack_r;
++	assign t_dr = 32'h7e88_0000;
++	always @(posedge clk) begin
++		t_ack_r <= t_stb && !t_ack_r;
++		if (t_stb && !t_ack_r && t_we && t_adr == 18'h20000) text_ctrl <= t_dw[5:0];
++		if (t_stb && !t_ack_r && t_we && t_adr == 18'h20010) text_base <= t_dw[14:0];
++		if (t_stb && !t_ack_r && t_we && t_adr == 18'h20018) text_ptr <= t_dw[15:0];
++		if (t_stb && !t_ack_r && t_we && t_adr == 18'h2001c) text_sel <= t_dw;
++		if (t_stb && !t_ack_r && t_we && t_adr == 18'h20020) text_gfx <= t_dw[0];
++	end
++
++	wire [1:0] dp, dm;
++	assign (highz1, weak0) dp[0] = 1'b0;
++	assign (highz1, weak0) dm[0] = 1'b0;
++	assign (highz1, weak0) dp[1] = 1'b0;
++	assign (highz1, weak0) dm[1] = 1'b0;
++
++	// (the ports' own times ten times shorter: debounce 10 ms, reset 1)
++	usb_host #(.PORTS(2), .T_MS(32'd4800), .T_FRAME(32'd48000)) host (
++		.wb_clk_i(clk), .wb_rst_i(rst),
++		.wb_adr_i(u_adr), .wb_dat_i(u_dw), .wb_dat_o(u_dr), .wb_we_i(u_we), .wb_sel_i(u_sel),
++		.wb_stb_i(u_stb), .wb_ack_o(u_ack), .wb_cyc_i(u_stb),
++		.usb_dp(dp), .usb_dm(dm),
++		.curs_max_x(11'd639), .curs_max_y(10'd479),
++		.curs_x0(), .curs_y0(), .curs_x1(), .curs_y1(), .typ0(), .typ1(),
++		.tx_active_o(), .tx_port_o(), .line0_o(),
++		.hid0_int_o(), .hid1_int_o(), .int_o()
++	);
++
++	reg plug = 0;
++	reg plug_m = 0;
++	wire [3:0] hub_en, hub_rst;
++
++	generate begin : dev
++		tb_usb_device #(.MODE(1), .MPS0(8)) kb (
++			.dp(dp[0]), .dm(dm[0]), .attach(plug),
++			.hub_en(), .hub_rst(), .hub_conn(4'b0000), .ext_reset(1'b0)
++		);
++		tb_usb_device #(.MODE(1), .MPS0(8)) ms (
++			.dp(dp[1]), .dm(dm[1]), .attach(plug_m),
++			.hub_en(), .hub_rst(), .hub_conn(4'b0000), .ext_reset(1'b0)
++		);
++	end endgenerate
++
++`ifdef TICK
++	// how far the simulation has come: a line every ten milliseconds of its time
++	integer tick_n = 0;
++	always @(posedge clk) begin
++		tick_n = tick_n + 1;
++		if (tick_n % 480000 == 0) $display("%0d ms", tick_n / 48000);
++	end
++`endif
++
++	// what the I/O processor types
++	integer n_got = 0, errors = 0;
++	reg [7:0] last_key = 0;
++	always @(posedge clk) if (key_stb) begin n_got = n_got + 1; last_key = key_dat; end
++
++	integer after = 60000;			// clocks after a report: seen, and passed on
++	task report(input [7:0] mods, input [7:0] key);
++		integer guard;
++		begin
++			dev.kb.hid_r0 = mods; dev.kb.hid_r1 = 0; dev.kb.hid_r2 = key; dev.kb.hid_r3 = 0;
++			dev.kb.hid_have = 1;
++			guard = 0;
++			while (dev.kb.hid_have && guard < 4000000) begin @(posedge clk); guard = guard + 1; end
++			if (guard >= 4000000) begin $display("FAIL: a report was not taken"); errors = errors + 1; end
++			repeat (after) @(posedge clk);
++		end
++	endtask
++
++	task tap(input [7:0] mods, input [7:0] key);
++		begin report(mods, key); report(mods, 8'd0); if (mods) report(8'd0, 8'd0); end
++	endtask
++
++	task mreport(input [7:0] btn, input [7:0] dx, input [7:0] dy);
++		integer g;
++		begin
++			dev.ms.hid_r0 = btn; dev.ms.hid_r1 = dx; dev.ms.hid_r2 = dy; dev.ms.hid_r3 = 0;
++			dev.ms.hid_have = 1;
++			g = 0;
++			while (dev.ms.hid_have && g < 4000000) begin @(posedge clk); g = g + 1; end
++			if (g >= 4000000) begin $display("FAIL: a mouse report was not taken"); errors = errors + 1; end
++			repeat (after) @(posedge clk);
++		end
++	endtask
++
++	// ------------------------------------------------------------
++	// the host: a slot's registers, as a driver reads and writes them
++	// ------------------------------------------------------------
++
++	reg [31:0] rd;
++	task vreg(input [2:0] slot, input [11:0] off, input we, input [3:0] sel, input [31:0] dat);
++		integer g;
++		begin
++			@(posedge clk);
++			h_slot = slot; h_adr = off[11:2]; h_we = we; h_sel = sel; h_wdat = dat; h_stb = 1;
++			g = 0;
++			@(posedge clk);
++			while (!h_ack && g < 2000000) begin @(posedge clk); g = g + 1; end
++			if (!h_ack) begin $display("FAIL: slot %0d register %03x was not answered", slot, off); errors = errors + 1; end
++			rd = h_rdat;
++			h_stb = 0;
++			@(posedge clk);
++		end
++	endtask
++	task vwr(input [2:0] slot, input [11:0] off, input [31:0] dat);
++		vreg(slot, off, 1'b1, 4'b1111, dat);
++	endtask
++	task vrd(input [2:0] slot, input [11:0] off);
++		vreg(slot, off, 1'b0, 4'b1111, 32'd0);
++	endtask
++
++	// the configuration asked: select and subsel, a byte each as Linux
++	// writes them; rd is then the word with the answer's size in [23:16]
++	task ask(input [2:0] slot, input [7:0] sel, input [7:0] subsel);
++		begin
++			vreg(slot, 12'h100, 1'b1, 4'b0001, { 24'd0, sel });
++			vreg(slot, 12'h100, 1'b1, 4'b0010, { 16'd0, subsel, 8'd0 });
++			vrd(slot, 12'h100);
++		end
++	endtask
++
++	// A device's queues in the host's memory, 4 KB a device at word
++	// B = 1024 * (slot - 2): the event queue's descriptors at B, its
++	// driver's ring at B + 64, the device's at B + 128, eight buffers of
++	// two words from B + 256; the status queue's at B + 512, + 576,
++	// + 640, and its one buffer at B + 768.
++	function [31:0] ha(input integer w);		// a word's address, as the host has it
++		ha = 32'h8000_0000 + 4 * w;
++	endfunction
++
++	task setup(input [2:0] slot);
++		integer B, i;
++		begin
++			B = 1024 * (slot - 2);
++			for (i = 0; i < 8; i = i + 1) begin
++				hmem[B + 4*i]     = ha(B + 256 + 2*i);
++				hmem[B + 4*i + 1] = 32'd0;
++				hmem[B + 4*i + 2] = 32'd8;
++				hmem[B + 4*i + 3] = 32'h0000_0002;		// the device writes it
++			end
++			// the driver's ring: flags, idx (8: all of them), then 0..7
++			hmem[B + 64] = { 16'd8, 16'd0 };
++			for (i = 0; i < 4; i = i + 1) hmem[B + 65 + i] = ((2*i + 1) << 16) | (2*i);
++			// the status queue: one descriptor, the driver's to fill
++			hmem[B + 512] = ha(B + 768); hmem[B + 513] = 32'd0; hmem[B + 514] = 32'd8; hmem[B + 515] = 32'd0;
++			hmem[B + 576] = 32'd0;
++			hmem[B + 577] = 32'd0;
++
++			vwr(slot, 12'h070, 32'd0);			// reset
++			vwr(slot, 12'h070, 32'd1);			// acknowledged
++			vwr(slot, 12'h070, 32'd3);			// ...and a driver for it
++			vwr(slot, 12'h014, 32'd1); vrd(slot, 12'h010);
++			if (!rd[0]) begin $display("FAIL: slot %0d does not offer version 1", slot); errors = errors + 1; end
++			vwr(slot, 12'h024, 32'd1); vwr(slot, 12'h020, 32'd1);
++			vwr(slot, 12'h070, 32'd11);			// features agreed
++			vwr(slot, 12'h030, 32'd0);
++			vrd(slot, 12'h034);
++			if (rd < 8) begin $display("FAIL: slot %0d: a queue of %0d", slot, rd); errors = errors + 1; end
++			vwr(slot, 12'h038, 32'd8);
++			vwr(slot, 12'h080, ha(B)); vwr(slot, 12'h090, ha(B + 64)); vwr(slot, 12'h0a0, ha(B + 128));
++			vwr(slot, 12'h044, 32'd1);
++			vwr(slot, 12'h030, 32'd1);
++			vwr(slot, 12'h038, 32'd8);
++			vwr(slot, 12'h080, ha(B + 512)); vwr(slot, 12'h090, ha(B + 576)); vwr(slot, 12'h0a0, ha(B + 640));
++			vwr(slot, 12'h044, 32'd1);
++			vwr(slot, 12'h070, 32'd15);			// driver ready
++			vwr(slot, 12'h050, 32'd0);
++		end
++	endtask
++
++	// the events a device has sent since asked last: each is looked at
++	// (ev_t, ev_c, ev_v; n_ev of them) and its buffer given back
++	reg [15:0] ev_t [0:63];
++	reg [15:0] ev_c [0:63];
++	reg [31:0] ev_v [0:63];
++	integer n_ev;
++	integer seen [2:3];
++	initial begin seen[2] = 0; seen[3] = 0; end
++	task collect(input [2:0] slot);
++		integer B, id, used;
++		begin
++			B = 1024 * (slot - 2);
++			n_ev = 0;
++			used = hmem[B + 128][31:16];
++			while (seen[slot] != used && n_ev < 64) begin
++				id = hmem[B + 129 + 2 * (seen[slot] & 7)];
++				ev_t[n_ev] = hmem[B + 256 + 2*id][15:0];
++				ev_c[n_ev] = hmem[B + 256 + 2*id][31:16];
++				ev_v[n_ev] = hmem[B + 257 + 2*id];
++				n_ev = n_ev + 1;
++				seen[slot] = (seen[slot] + 1) & 16'hffff;
++				// the buffer back: the driver's ring goes round with the same numbers
++				hmem[B + 64][31:16] = hmem[B + 64][31:16] + 16'd1;
++			end
++			vwr(slot, 12'h064, 32'd3);			// the interrupt, taken
++		end
++	endtask
++
++	task want(input [8*24-1:0] name, input integer i, input [15:0] t, input [15:0] c, input [31:0] v);
++		begin
++			if (i >= n_ev || ev_t[i] !== t || ev_c[i] !== c || ev_v[i] !== v) begin
++				if (i >= n_ev) $display("FAIL: %0s: event %0d is not there (%0d came)", name, i, n_ev);
++				else $display("FAIL: %0s: event %0d is %0d %0d %0d, should be %0d %0d %0d", name, i,
++					ev_t[i], ev_c[i], ev_v[i], t, c, v);
++				errors = errors + 1;
++			end
++		end
++	endtask
++
++	integer pb;
++	initial for (pb = 0; pb < 2048; pb = pb + 1) host.pbuf[pb] = 8'h00;
++
++	integer guard, typed, k;
++	reg [31:0] x0;
++	initial begin
++		#1;
++		dev.kb.cfgd[16] = 8'h01;
++		force host.cap4 = 8'd0;
++		force host.cap5 = 8'd0;
++		dev.kb.cfgd[33] = 8'h01;
++		dev.ms.cfgd[33] = 8'h01;
++		repeat (20) @(posedge clk);
++		rst = 0;
++		repeat (20000) @(posedge clk);
++		plug = 1;
++		guard = 0;
++		while (host.typ0 !== 2'd1 && guard < 60000000) begin @(posedge clk); guard = guard + 1; end
++		if (host.typ0 !== 2'd1) begin $display("FAIL: no keyboard after %0d clocks", guard); $finish; end
++		$display("a keyboard after %0d ms", guard / 48000);
++		plug_m = 1;
++		guard = 0;
++		while (host.typ1 !== 2'd2 && guard < 12000000) begin @(posedge clk); guard = guard + 1; end
++		if (host.typ1 !== 2'd2) begin $display("FAIL: no mouse after %0d clocks", guard); $finish; end
++		$display("a mouse after %0d ms", guard / 48000);
++		repeat (100000) @(posedge clk);
++
++		// what the devices say they are
++		vrd(3'd2, 12'h000); if (rd !== 32'h74726976) begin $display("FAIL: slot 2's magic is %08x", rd); errors = errors + 1; end
++		vrd(3'd2, 12'h008); if (rd !== 32'd18) begin $display("FAIL: slot 2 is device %0d", rd); errors = errors + 1; end
++		vrd(3'd3, 12'h008); if (rd !== 32'd18) begin $display("FAIL: slot 3 is device %0d", rd); errors = errors + 1; end
++		ask(3'd2, 8'h01, 8'd0);
++		if (rd[23:16] !== 8'd14) begin $display("FAIL: the keyboard's name has %0d letters", rd[23:16]); errors = errors + 1; end
++		vrd(3'd2, 12'h108);
++		if (rd !== "akaK") begin $display("FAIL: the keyboard's name begins %08x", rd); errors = errors + 1; end
++		ask(3'd3, 8'h01, 8'd0);
++		if (rd[23:16] !== 8'd13) begin $display("FAIL: the pointer's name has %0d letters", rd[23:16]); errors = errors + 1; end
++		// the keyboard's keys: KEY_A is 30, in the fourth byte's bit 6;
++		// neither Super key (125, 126) and not Scroll Lock (70)
++		ask(3'd2, 8'h11, 8'd1);
++		vrd(3'd2, 12'h108);
++		if (!rd[30]) begin $display("FAIL: the keyboard has no A (%08x)", rd); errors = errors + 1; end
++		vrd(3'd2, 12'h110);
++		if (rd[6]) begin $display("FAIL: the keyboard offers Scroll Lock"); errors = errors + 1; end
++		vrd(3'd2, 12'h114);
++		if (rd[29] || rd[30]) begin $display("FAIL: the keyboard offers a Super key"); errors = errors + 1; end
++		// the pointer: X from 0 to 639, Y to 479, and the left button (0x110)
++		ask(3'd3, 8'h12, 8'd0);
++		if (rd[23:16] !== 8'd20) begin $display("FAIL: the pointer's range is %0d bytes", rd[23:16]); errors = errors + 1; end
++		vrd(3'd3, 12'h10c);
++		if (rd !== 32'd639) begin $display("FAIL: the pointer goes to %0d across", rd); errors = errors + 1; end
++		ask(3'd3, 8'h12, 8'd1);
++		vrd(3'd3, 12'h10c);
++		if (rd !== 32'd479) begin $display("FAIL: the pointer goes to %0d down", rd); errors = errors + 1; end
++		ask(3'd3, 8'h11, 8'd1);
++		vrd(3'd3, 12'h108 + 12'h020);
++		if (rd[23:16] !== 8'h07) begin $display("FAIL: the pointer's buttons are %08x", rd); errors = errors + 1; end
++		// (the keyboard asked again after the pointer: the one answer is made anew)
++		ask(3'd2, 8'h11, 8'h11);
++		vrd(3'd2, 12'h108);
++		if (rd[7:0] !== 8'h07) begin $display("FAIL: the keyboard's lights are %02x", rd[7:0]); errors = errors + 1; end
++		$display("the devices have said what they are");
++
++		setup(3'd2);
++		setup(3'd3);
++
++		// at a terminal: typed, and nothing for the host's keyboard
++		typed = n_got;
++		tap(8'h00, 8'h04);
++		if (n_got != typed + 1 || last_key !== "a") begin $display("FAIL: a at a terminal typed %0d (%02x)", n_got - typed, last_key); errors = errors + 1; end
++		collect(3'd2);
++		if (n_ev != 0) begin $display("FAIL: %0d events at a terminal", n_ev); errors = errors + 1; end
++		mreport(8'h00, 8'd16, 8'd0);
++		if (text_ptr[15] !== 1'b1) begin $display("FAIL: no pointer on the terminal"); errors = errors + 1; end
++		collect(3'd3);
++		if (n_ev != 0) begin $display("FAIL: %0d pointer events at a terminal", n_ev); errors = errors + 1; end
++
++		// Super with 0: the graphics screen
++		after = 200000;
++		report(8'h08, 8'h00); report(8'h08, 8'h27); report(8'h08, 8'h00); report(8'h00, 8'h00);
++		after = 60000;
++		if (text_ptr[15] !== 1'b0) begin $display("FAIL: the terminal's pointer is still shown"); errors = errors + 1; end
++		if (text_gfx !== 1'b1) begin $display("FAIL: the screen was not turned to the framebuffer"); errors = errors + 1; end
++		typed = n_got;
++		tap(8'h00, 8'h04);
++		collect(3'd2);
++		if (n_got != typed) begin $display("FAIL: a on the graphics screen was typed"); errors = errors + 1; end
++		if (n_ev != 4) begin $display("FAIL: a is %0d events", n_ev); errors = errors + 1; end
++		want("a", 0, 16'd1, 16'd30, 32'd1); want("a", 1, 16'd0, 16'd0, 32'd0);
++		want("a", 2, 16'd1, 16'd30, 32'd0); want("a", 3, 16'd0, 16'd0, 32'd0);
++		tap(8'h02, 8'h04);
++		collect(3'd2);
++		if (n_ev != 8) begin $display("FAIL: A is %0d events", n_ev); errors = errors + 1; end
++		want("A", 0, 16'd1, 16'd42, 32'd1); want("A", 2, 16'd1, 16'd30, 32'd1);
++		want("A", 4, 16'd1, 16'd30, 32'd0); want("A", 6, 16'd1, 16'd42, 32'd0);
++		// more than the queue has buffers for, between two looks: Up, Enter, F1
++		tap(8'h00, 8'h52); tap(8'h00, 8'h28); tap(8'h00, 8'h3a);
++		collect(3'd2);
++		if (n_ev != 8) begin $display("FAIL: three keys, eight buffers: %0d events", n_ev); errors = errors + 1; end
++		want("Up", 0, 16'd1, 16'd103, 32'd1); want("Enter", 4, 16'd1, 16'd28, 32'd1);
++		vwr(3'd2, 12'h050, 32'd0);
++		repeat (60000) @(posedge clk);
++		collect(3'd2);
++		if (n_ev != 4) begin $display("FAIL: the rest: %0d events", n_ev); errors = errors + 1; end
++		want("F1", 0, 16'd1, 16'd59, 32'd1); want("F1", 2, 16'd1, 16'd59, 32'd0);
++		if (n_got != typed) begin $display("FAIL: keys on the graphics screen were typed"); errors = errors + 1; end
++		$display("the keyboard is the host's");
++
++		// the pointer: moved right by 24, then the button
++		collect(3'd3);
++		mreport(8'h00, 8'd24, 8'd0);
++		collect(3'd3);
++		if (n_ev != 2) begin $display("FAIL: the pointer moved: %0d events", n_ev); errors = errors + 1; end
++		if (n_ev >= 1 && (ev_t[0] !== 16'd3 || ev_c[0] !== 16'd0)) begin $display("FAIL: the pointer moved: %0d %0d", ev_t[0], ev_c[0]); errors = errors + 1; end
++		x0 = ev_v[0];
++		mreport(8'h00, 8'd8, 8'd4);
++		collect(3'd3);
++		// (how far a movement takes the pointer is the USB controller's
++		// business: further than the mouse says, when it moves fast)
++		if (n_ev != 3 || ev_c[0] !== 16'd0 || ev_v[0] <= x0 || ev_v[0] > x0 + 32 || ev_t[1] !== 16'd3 || ev_c[1] !== 16'd1) begin
++			$display("FAIL: the pointer moved again: %0d events, x %0d after %0d", n_ev, ev_v[0], x0); errors = errors + 1;
++		end
++		x0 = ev_v[0];
++		mreport(8'h01, 8'd0, 8'd0);
++		collect(3'd3);
++		want("the button", 0, 16'd1, 16'h110, 32'd1); want("the button", 1, 16'd0, 16'd0, 32'd0);
++		mreport(8'h00, 8'd0, 8'd0);
++		collect(3'd3);
++		want("the button up", 0, 16'd1, 16'h110, 32'd0);
++		if (text_ptr[15] !== 1'b0 || text_sel[31] !== 1'b0) begin $display("FAIL: the text mode has a pointer or a selection"); errors = errors + 1; end
++		$display("the pointer is the host's, at %0d across", x0);
++
++		// the menus over it: a Super key alone opens them, the keys are
++		// theirs, Scroll Lock closes them
++		after = 400000;
++		tap(8'h08, 8'h00);
++		if (text_ctrl[4] !== 1'b1) begin $display("FAIL: the menus did not open"); errors = errors + 1; end
++		tap(8'h00, 8'h51);
++		tap(8'h00, 8'h47);
++		after = 60000;
++		collect(3'd2);
++		if (n_ev != 0) begin $display("FAIL: %0d events while the menus were open", n_ev); errors = errors + 1; end
++
++		// the driver lights Caps Lock: EV_LED (0x11), light 1, on
++		hmem[1024 * 0 + 768] = { 16'd1, 16'h0011 };
++		hmem[1024 * 0 + 769] = 32'd1;
++		hmem[1024 * 0 + 576] = { 16'd1, 16'd0 };
++		vwr(3'd2, 12'h050, 32'd1);
++		repeat (200000) @(posedge clk);
++		if (hmem[640][31:16] !== 16'd1) begin $display("FAIL: the light's buffer did not come back"); errors = errors + 1; end
++
++		// Super with 1: a terminal again; a key held is let go for the host
++		report(8'h00, 8'h05);
++		collect(3'd2);
++		want("b down", 0, 16'd1, 16'd48, 32'd1);
++		after = 200000;
++		report(8'h08, 8'h05); report(8'h08, 8'h1e); report(8'h08, 8'h00); report(8'h00, 8'h00);
++		after = 60000;
++		if (text_gfx !== 1'b0) begin $display("FAIL: the screen was not turned back to the terminal"); errors = errors + 1; end
++		collect(3'd2);
++		k = 0;
++		for (guard = 0; guard < n_ev; guard = guard + 1)
++			if (ev_t[guard] === 16'd1 && ev_c[guard] === 16'd48 && ev_v[guard] === 32'd0) k = 1;
++		if (!k) begin $display("FAIL: b was not let go for the host"); errors = errors + 1; end
++		typed = n_got;
++		tap(8'h00, 8'h04);
++		collect(3'd2);
++		if (n_got != typed + 1 || n_ev != 0) begin $display("FAIL: back at a terminal: %0d typed, %0d events", n_got - typed, n_ev); errors = errors + 1; end
++
++		if (trap) begin $display("FAIL: the I/O processor stopped"); errors = errors + 1; end
++		if (errors != 0) $display("FAIL: %0d errors", errors);
++		else $display("PASS: the keyboard and the mouse as virtio input devices");
++		$finish;
++	end
++
++endmodule
+diff --git a/soc/tools/mkdts.py b/soc/tools/mkdts.py
+index a523c44..db145e5 100644
+--- a/soc/tools/mkdts.py
++++ b/soc/tools/mkdts.py
+@@ -33,6 +33,9 @@ def main():
+     ap.add_argument("--isa", default="rv32ima")
+     # more for the kernel's command line (root=/dev/vda2 rootwait)
+     ap.add_argument("--bootargs", default="")
++    # a framebuffer (FB=1): the top 4 MB of main memory are its, and no
++    # longer the system's; 640 by 480, r5g6b5
++    ap.add_argument("--fb", action="store_true")
+     a = ap.parse_args()
+ 
+     if a.liteuart:
+@@ -72,6 +75,23 @@ def main():
+ 			reg = <0xf0001000 0x100>;
+ 		};
+ """
++    mem = a.mem << 20
++    if a.fb:
++        mem -= 4 << 20
++        serial += """
++		/* the screen once the terminal is turned to it (Super+0): as
++		   it stands 16 bits a pixel; a word at kakao,ctrl has a bit
++		   that makes it 8, of 256 colours kept from 0x400 on */
++		framebuffer@%x {
++			compatible = "simple-framebuffer";
++			reg = <0x%x 0x%x>;
++			width = <640>;
++			height = <480>;
++			stride = <1280>;
++			format = "r5g6b5";
++			kakao,ctrl = <0x03001000>;
++		};
++""" % (0x80000000 + mem, 0x80000000 + mem, 640 * 480 * 2)
+     print("""/dts-v1/;
+ 
+ /* %s: made by soc/tools/mkdts.py. %d MB, %d console%s. */
+@@ -157,7 +177,7 @@ def main():
+ 		};
+ %s	};
+ };""" % (a.model, a.mem, a.consoles, "" if a.consoles == 1 else "s", a.compatible, a.model,
+-        bootargs, initrd, a.isa, "sv39" if a.isa.startswith("rv64") else "sv32", a.mem << 20, serial))
++        bootargs, initrd, a.isa, "sv39" if a.isa.startswith("rv64") else "sv32", mem, serial))
+ 
+ if __name__ == "__main__":
+     main()

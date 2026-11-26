@@ -21,18 +21,23 @@
 
 /* to the hosts: a queue of characters, each with its console's number
    above it, emptied as the consoles take them */
-static unsigned short q[256];
+#ifdef INPUT
+#define QN 128			/* (INPUT=1: memory is short, and the stack needs it) */
+#else
+#define QN 256
+#endif
+static unsigned short q[QN];
 static unsigned char q_in, q_out;
 
 void host_put_to(int con, unsigned char c)
 {
-	unsigned char n = (unsigned char)(q_in + 1);
+	unsigned char n = (unsigned char)((q_in + 1) & (QN - 1));
 	if (n != q_out) { q[q_in] = (unsigned short)(con << 8 | c); q_in = n; }
 }
 
 int host_room(void)
 {
-	return (unsigned char)(q_in + 1) != q_out;
+	return (unsigned char)((q_in + 1) & (QN - 1)) != q_out;
 }
 
 /* what is typed goes to the terminal on the screen */
@@ -125,6 +130,9 @@ int main(void)
 	kbd_init();
 	vblk_init();
 	vnet_init();
+#ifdef INPUT
+	vinput_init();
+#endif
 
 	for (;;) {
 		uint32_t c = CON;
@@ -143,7 +151,7 @@ int main(void)
 		}
 		if (q_out != q_in && !(KEY & (1u << (q[q_out] >> 8)))) {
 			KEY = q[q_out];
-			q_out++;
+			q_out = (unsigned char)((q_out + 1) & (QN - 1));
 		}
 
 		if (z_usbh_present()) {
@@ -168,5 +176,8 @@ int main(void)
 		virtio_notified();		/* (the queues are looked at every turn) */
 		vblk_poll();
 		vnet_poll();
+#ifdef INPUT
+		vinput_poll();
+#endif
 	}
 }

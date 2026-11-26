@@ -33,6 +33,9 @@ def main():
     ap.add_argument("--isa", default="rv32ima")
     # more for the kernel's command line (root=/dev/vda2 rootwait)
     ap.add_argument("--bootargs", default="")
+    # a framebuffer (FB=1): the top 4 MB of main memory are its, and no
+    # longer the system's; 640 by 480, r5g6b5
+    ap.add_argument("--fb", action="store_true")
     a = ap.parse_args()
 
     if a.liteuart:
@@ -72,6 +75,23 @@ def main():
 			reg = <0xf0001000 0x100>;
 		};
 """
+    mem = a.mem << 20
+    if a.fb:
+        mem -= 4 << 20
+        serial += """
+		/* the screen once the terminal is turned to it (Super+0): as
+		   it stands 16 bits a pixel; a word at kakao,ctrl has a bit
+		   that makes it 8, of 256 colours kept from 0x400 on */
+		framebuffer@%x {
+			compatible = "simple-framebuffer";
+			reg = <0x%x 0x%x>;
+			width = <640>;
+			height = <480>;
+			stride = <1280>;
+			format = "r5g6b5";
+			kakao,ctrl = <0x03001000>;
+		};
+""" % (0x80000000 + mem, 0x80000000 + mem, 640 * 480 * 2)
     print("""/dts-v1/;
 
 /* %s: made by soc/tools/mkdts.py. %d MB, %d console%s. */
@@ -157,7 +177,7 @@ def main():
 		};
 %s	};
 };""" % (a.model, a.mem, a.consoles, "" if a.consoles == 1 else "s", a.compatible, a.model,
-        bootargs, initrd, a.isa, "sv39" if a.isa.startswith("rv64") else "sv32", a.mem << 20, serial))
+        bootargs, initrd, a.isa, "sv39" if a.isa.startswith("rv64") else "sv32", mem, serial))
 
 if __name__ == "__main__":
     main()

@@ -12,7 +12,10 @@ SECTIONS {
 	.bss : { *(.bss .bss.* .sbss .sbss.* COMMON) } > ram
 	. = ALIGN(4);
 	_ebss = .;
-	/* what is left is the stack: at least 512 bytes of it */
-	ASSERT(_ebss + 512 <= ORIGIN(ram) + LENGTH(ram), "the I/O processor's program does not fit")
+	/* what is left is the stack: at least 1024 bytes of it. It has been
+	   seen 656 deep (sim/tb_iop_input.v watches it: USB devices found,
+	   "About this machine" opened); with 512 that went into the data
+	   below, and the machine reset itself a little later. */
+	ASSERT(_ebss + 1024 <= ORIGIN(ram) + LENGTH(ram), "the I/O processor's program does not fit")
 	_stack = ORIGIN(ram) + LENGTH(ram);
 }

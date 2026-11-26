@@ -1,0 +1,20 @@
+# Kakao SOC, and QEMU's RISC-V virt machine, which the SOC copies.
+# This file is read into rv/mkfile (by getdefs), so it can hold rules too.
+PAUart0=0x10000000
+# OpenSBI is in the first 2MB of memory; kboot and QEMU both load the
+# kernel after it and OpenSBI enters it there in supervisor mode.
+PHYSMEM=0x80200000u
+BANK0SIZE=(510*MB)
+KTZERO=0xffffffc080200000
+# the reboot trampoline: PHYSMEM+BANK0SIZE-MB+0x5000
+RBKTZERO=0x9ff05000
+SFX=bin
+# UARTREG8: the 16550's registers are a byte apart here, not a word.
+# NOETHEROK: go on without a network interface (no driver yet).
+# KKCONSKEYS: on the serial console DEL erases and ^C interrupts (devcons.c).
+CONFDEF= -DUARTREG8 -DNOETHEROK -DKKFDT -DKKCONSKEYS -DKERNMEMMIN=(24*MB)
+
+# the first user program, in place of ../boot's: see kk/boot.c
+bootkk.out:	kk/boot.c
+	$CC $CFLAGS -o bootkk.$O kk/boot.c
+	$LD -o $target bootkk.$O

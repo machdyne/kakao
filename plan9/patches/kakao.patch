@@ -1,0 +1,212 @@
+--- a/sys/src/libc/port/mkfile
++++ b/sys/src/libc/port/mkfile
+@@ -50,7 +50,6 @@
+ 	needsrcquote.c\
+ 	netcrypt.c\
+ 	netmkaddr.c\
+-	noansiterm.c\
+ 	nrand.c\
+ 	ntruerand.c\
+ 	perror.c\
+--- a/sys/src/lib9p/mem.c
++++ b/sys/src/lib9p/mem.c
+@@ -6,7 +6,7 @@
+ #include "9p.h"
+ 
+ void*
+-emalloc9p(ulong sz)
++emalloc9p(uintptr sz)
+ {
+ 	void *v;
+ 
+@@ -20,7 +20,7 @@
+ }
+ 
+ void*
+-erealloc9p(void *v, ulong sz)
++erealloc9p(void *v, uintptr sz)
+ {
+ 	void *nv;
+ 
+--- a/sys/src/libbin/bin.c
++++ b/sys/src/libbin/bin.c
+@@ -45,7 +45,7 @@
+ }
+ 
+ void*
+-binalloc(Bin **bin, ulong size, int zero)
++binalloc(Bin **bin, uintptr size, int zero)
+ {
+ 	Bin *b;
+ 	uintptr p;
+@@ -76,7 +76,7 @@
+ }
+ 
+ void*
+-bingrow(Bin **bin, void *op, ulong osize, ulong size, int zero)
++bingrow(Bin **bin, void *op, uintptr osize, uintptr size, int zero)
+ {
+ 	Bin *b;
+ 	void *np;
+--- a/sys/src/libthread/lib.c
++++ b/sys/src/libthread/lib.c
+@@ -6,7 +6,7 @@
+ static long totalmalloc;
+ 
+ void*
+-_threadmalloc(long size, int z)
++_threadmalloc(uintptr size, int z)
+ {
+ 	void *m;
+ 
+--- a/sys/src/libsec/port/mkfile
++++ b/sys/src/libsec/port/mkfile
+@@ -7,7 +7,7 @@
+ 	hmac.c md5.c md5block.c md4.c sha1.c sha1block.c\
+ 	sha2_64.c sha2_128.c sha2block64.c sha2block128.c\
+ 	sha1pickle.c md5pickle.c\
+-	rc4.c\
++	rc4.c chacha.c\
+ 	genrandom.c prng.c fastrand.c nfastrand.c\
+ 	probably_prime.c smallprimetest.c genprime.c dsaprimes.c\
+ 	gensafeprime.c genstrongprime.c\
+--- a/sys/include/libsec.h
++++ b/sys/include/libsec.h
+@@ -402,3 +402,33 @@
+ /* readcert.c */
+ uchar	*readcert(char *filename, int *pcertlen);
+ PEMChain*readcertchain(char *filename);
++
++/*
++ * ChaCha stream cipher (added for the Kakao port: libsec/port/chacha.c)
++ */
++enum
++{
++	ChachaBsize=	64,
++	ChachaKeylen=	256/8,
++	ChachaIVlen=	96/8,
++};
++
++typedef struct Chachastate Chachastate;
++struct Chachastate
++{
++	union{
++		u32int	input[16];
++		struct {
++			u32int	constant[4];
++			u32int	key[8];
++			u32int	counter;
++			u32int	iv[3];
++		};
++	};
++	int	rounds;
++};
++
++void	setupChachastate(Chachastate*, uchar*, ulong, uchar*, int);
++void	chacha_setblock(Chachastate*, u32int);
++void	chacha_encrypt(uchar*, ulong, Chachastate*);
++void	chacha_encrypt2(uchar*, uchar*, ulong, Chachastate*);
+--- a/sys/src/9k/rv/uarti8250.c
++++ b/sys/src/9k/rv/uarti8250.c
+@@ -161,7 +161,11 @@
+ 
+ Uart *consuart = &i8250uart[0];
+ 
++#ifdef UARTREG8		/* registers a byte apart: QEMU's virt, the Kakao SOC */
++#define regbase(c)	((uchar *)(m->virtdevaddrs? (c)->io: (c)->phyio))
++#else
+ #define regbase(c)	((ulong *)(m->virtdevaddrs? (c)->io: (c)->phyio))
++#endif
+ #define csr8r(c, r)	(coherence(), regbase(c)[r])
+ #define csr8w(c, r, v)	(regbase(c)[r] = (c)->sticky[r] | (v), coherence())
+ #define csr8o(c, r, v)	(regbase(c)[r] = (v), coherence())
+--- a/sys/src/9k/rv/devether.c
++++ b/sys/src/9k/rv/devether.c
+@@ -507,6 +507,9 @@
+ 			etherxx[ctlrno++] = ether;
+ 	if (ctlrno == 0) {
+ 		print("no known ethernet interfaces found\n");
++#ifdef NOETHEROK		/* a console is enough to be going on with */
++		return;
++#endif
+ 		pcihinv(nil);
+ 		delay(1000);
+ 		for(;;)
+--- a/sys/src/9k/rv/start.s	2026-11-24 17:01:41.575262606 +0100
++++ b/sys/src/9k/rv/start.s	2026-11-24 17:01:41.593982799 +0100
+@@ -26,6 +26,8 @@
+ 	/* data segment, not bss, variables, due to initialisation */
+ 	GLOBL	printlck(SB), $4
+ 	DATA	printlck(SB)/4, $0
++	GLOBL	bootfdtpa(SB), $8	/* kakao: a1 at entry, for kkfdt.c */
++	DATA	bootfdtpa(SB)/8, $0
+ 
+ TEXT _main(SB), 1, $-4			/* _main avoids libc's main9.s */
+ 	SPLHI
+@@ -51,6 +53,7 @@
+ 	 * static data not based on SB (e.g., an Rvarch struct).
+ 	 */
+ 	MOV	$setSB(SB), R3
++	MOV	R11, bootfdtpa(SB)	/* kakao: the device tree, if any */
+ 	MOV	$Defssts, R(TMP)	/* prev S mode is user */
+ 	MOV	R(TMP), CSR(SSTATUS)
+ 	MOV	$dummymach(SB), R(MACH)
+--- a/sys/src/9k/rv/low.c	2026-11-24 17:01:41.575288690 +0100
++++ b/sys/src/9k/rv/low.c	2026-11-24 17:01:41.594200498 +0100
+@@ -48,6 +48,7 @@
+ Initstack initstks[MACHMAX] = { 1 };
+ Initstack *initstkp = initstks + 1;
+ Sys*	lowsys = 0;		/* visible to earlypagealloc in mmu.c */
++void	fdtconf(void);		/* kakao: kkfdt.c */
+ uintptr	mainpc = 0;
+ uintptr satptval, satpepc;
+ 
+@@ -276,6 +277,9 @@
+ 	char *aftreboot;
+ 	Sys *rlowsys;
+ 
++#ifdef KKFDT
++	fdtconf();		/* kakao: timebase, memory size, virtio slots */
++#endif
+ 	/* compute (low)sys once, in case the computation changes */
+ 	lowsys = rlowsys = (Sys *)
+ 		(membanks[0].addr + membanks[0].size - Syssize);
+--- a/sys/src/9k/rv/memory.c	2026-11-24 17:16:02.686056731 +0100
++++ b/sys/src/9k/rv/memory.c	2026-11-24 17:27:24.710525847 +0100
+@@ -346,6 +346,14 @@
+ 			kernmem = Minmb*MB/3;
+ 	}
+ 	kernmem = MIN(kernmem, Kernmax);
++#ifdef KERNMEMMIN
++	/*
++	 * kakao: a tenth of a small bank is too little.  The kernel allocates
++	 * 13.5 MB as it starts, and qmalloc runs past the end of its arena.
++	 */
++	if (kernmem < KERNMEMMIN && pmsize >= 2*(uintptr)KERNMEMMIN)
++		kernmem = KERNMEMMIN;
++#endif
+ 	return ROUNDUP(kernmem, PGLSZ(1));	/* 2MB to fit L1 PTEs */
+ }
+ 
+--- a/sys/src/9k/rv/archrv.c	2026-11-24 17:52:37.569178383 +0100
++++ b/sys/src/9k/rv/archrv.c	2026-11-24 17:52:37.593773892 +0100
+@@ -209,8 +209,17 @@
+ 	if (m->machno == 0) {
+ 		if (haveinstr(cboflush, (uvlong)bdata))
+ 			soc.havecbom = 1;
+-		if (haveinstr(cbozero, (uvlong)&cacheline[CACHELINESZ]))
+-			soc.havecboz = 1;
++		if (haveinstr(cbozero, (uvlong)&cacheline[CACHELINESZ])) {
++			/*
++			 * kakao: not trapping is not enough.  kakao64 takes
++			 * every MISC-MEM instruction for a fence, and then
++			 * zero() would zero nothing.  See that it works.
++			 */
++			memset(cacheline, 0xff, sizeof cacheline);
++			cbozero(&cacheline[CACHELINESZ]);
++			if (cacheline[CACHELINESZ] == 0)
++				soc.havecboz = 1;
++		}
+ 	}
+ 	if (l2c != nil) {
+ 		if (m->machno == 0)

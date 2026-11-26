@@ -1,0 +1,14 @@
+#!/bin/rc
+# kkrio - the window system, with a few windows to begin with
+# (kkriostart).  On a machine with a screen (the kernel says "screen:"
+# as it starts), from the console.
+if(! test -e /dev/draw/new){
+	echo kkrio: this machine has no screen >[1=2]
+	exit 'no screen'
+}
+# how wide the screen is, for kkriostart to lay its windows out
+s=`{dd -quiet 1 -if /dev/screen -bs 60 -count 1 >[2]/dev/null}
+kkwidth=640
+if(~ $#s 5)
+	kkwidth=$s(4)
+exec rio -i kkriostart

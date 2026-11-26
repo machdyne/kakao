@@ -33,6 +33,7 @@ static uint32_t reg_read(struct vdev *d, uint32_t off)
 {
 	struct vq *q = d->qsel < d->nq ? &d->q[d->qsel] : 0;
 	if (off >= 0x100) {
+		if (d->cfg_read) return d->cfg_read(d, off - 0x100);
 		off = (off - 0x100) >> 2;
 		return off < d->cfg_words ? d->cfg[off] : 0;
 	}
@@ -49,9 +50,13 @@ static uint32_t reg_read(struct vdev *d, uint32_t off)
 	return 0;
 }
 
-static void reg_write(struct vdev *d, uint32_t off, uint32_t v)
+static void reg_write(struct vdev *d, uint32_t off, uint32_t v, uint32_t sel)
 {
 	struct vq *q = d->qsel < d->nq ? &d->q[d->qsel] : 0;
+	if (off >= 0x100) {
+		if (d->cfg_write) d->cfg_write(d, off - 0x100, v, sel);
+		return;
+	}
 	switch (off) {
 	case 0x014: d->fsel = (uint8_t)(v > 2 ? 2 : v); return;
 	case 0x024: d->dsel = (uint8_t)v; return;
@@ -84,7 +89,7 @@ void virtio_poll(void)
 			dev_reset(d);
 			if (d->start) d->start(d);
 		}
-		if (r & 0x40000000u) reg_write(d, r & 0xffc, VWDAT);
+		if (r & 0x40000000u) reg_write(d, r & 0xffc, VWDAT, (r >> 20) & 15);
 		else v = reg_read(d, r & 0xffc);
 	} else if (!(r & 0x40000000u)) {
 		/* an empty slot: a device of no kind */

@@ -33,7 +33,7 @@ int main(int argc, char **argv) {
 	uint32_t clu, size;
 	const char *path = argc > 2 ? argv[2] : "boot.json";
 	if (argc < 2 || !(img = fopen(argv[1], "rb"))) { fprintf(stderr, "hosttest <image> [<path>]\n"); return 2; }
-	if (fat_mount() && fat_open(path, (int)strlen(path), &clu, &size)) {
+	if (fat_mount() && (os_choose(), fat_open(path, (int)strlen(path), &clu, &size))) {
 		say_fs();
 		printf("found: %s, %u bytes, cluster %u\n", path, size, clu);
 		return 0;

@@ -1,0 +1,23 @@
+#!/bin/sh
+# p9run ROOT 'rc command line' - run rc inside the Plan 9 source root.
+#
+# Plan 9's mkfiles name their files from the root (/sys/src, /riscv64,
+# /rc/bin), so the build runs with ROOT as its root directory.  That
+# takes one of, tried in this order: being root (chroot), bubblewrap
+# (bwrap), or user name spaces (unshare -r).
+#
+# FORCERCFORMK makes plan9port's mk run recipes with rc, as Plan 9's does.
+R=$1; shift
+[ -d "$R/sys/src" ] || { echo "p9run: $R is not a Plan 9 root (make root)" >&2; exit 2; }
+R=$(cd "$R" && pwd)
+set -- /host/env -i PLAN9=/p9p PATH=.:/bin:/p9p/bin:/host FORCERCFORMK=1 \
+	objtype=riscv64 cputype=amd64 home=/tmp user=glenda \
+	NPROC="${NPROC:-$(nproc 2>/dev/null || echo 2)}" TMPDIR=/tmp \
+	/p9p/bin/rc -c "$*"
+if [ "$(id -u)" = 0 ]; then
+	exec chroot "$R" "$@"
+elif command -v bwrap >/dev/null 2>&1; then
+	exec bwrap --bind "$R" / --dev /dev --chdir / "$@"
+else
+	exec unshare -r chroot "$R" "$@"
+fi

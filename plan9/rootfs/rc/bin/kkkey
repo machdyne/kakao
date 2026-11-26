@@ -1,0 +1,20 @@
+#!/bin/rc
+# kkkey [password] - start factotum if it is not running and, with a
+# password, give it glenda's key for the authentication domain kakao.
+# Without one factotum asks on the console when a key is first needed,
+# and does not show what is typed; as an argument the password is there
+# for anyone to read, which is for bringing a machine up.
+if(! ~ $#* 0 1){
+	echo 'usage: kkkey [password]' >[1=2]
+	exit usage
+}
+# factotum mounts itself before everything else on /mnt.  Here it has to
+# come after, as /lib/namespace has it: the authentication server looks
+# for /mnt/keys while factotum waits for its answer, and must not have
+# to ask factotum whether it has such a file.
+if(! test -e /srv/factotum)
+	@{rfork n; auth/factotum -n -s factotum}
+if(! test -e /mnt/factotum/ctl)
+	mount -a /srv/factotum /mnt
+if(~ $#* 1)
+	echo 'key proto=p9sk1 dom=kakao user=glenda !password='^$1 >/mnt/factotum/ctl

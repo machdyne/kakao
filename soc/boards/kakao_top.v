@@ -68,6 +68,8 @@ module kakao_top #(
 	parameter USB = 1,				// the terminal's keyboard: the USB host ports
 	parameter VIRTIO = 2,			// virtio slots (the SD card as a disk, the network)
 	parameter IOP_WORDS = 11264,		// the I/O processor's memory, in words
+	parameter FB = 0,				// a framebuffer in main memory (FB=1: DDR3, TERMINAL, KCACHE)
+	parameter FB_AT = 127,			// ...its 4 MB: the last of main memory's (MEM_MB / 4 - 1)
 	// (K_IOP_HEADLESS: a board without a terminal, whose I/O processor
 	// is the virtio devices alone)
 `ifdef K_IOP_HEADLESS
@@ -192,6 +194,15 @@ module kakao_top #(
 	wire [31:0] mem_dat_w, mem_dat_r;
 	wire        mem_we, mem_stb, mem_ack;
 	wire  [3:0] mem_sel;
+
+	// the framebuffer's port to main memory (FB)
+	wire         fb_stb, fb_ack;
+	wire  [24:0] fb_adr;
+	wire [127:0] fb_dat;
+`ifndef K_FB
+	assign fb_ack = 1'b0;
+	assign fb_dat = 128'd0;
+`endif
 
 	wire  [1:0] reg_adr;
 	wire [31:0] reg_dat_w, reg_dat_r;
@@ -330,6 +341,7 @@ module kakao_top #(
 		.CPU64(CPU64), .KCACHE(KCACHE), .I_KB(I_KB), .D_KB(D_KB), .BTFN(BTFN), .TLB_BITS(TLB_BITS), .FAST_MUL(FAST_MUL),
 		.TERMINAL(TERMINAL), .TERMS(TERMS), .HIST(HIST), .IOP_HEX(IOP_HEX), .FONT_HEX(FONT_HEX),
 		.USB(USB), .IOP_WORDS(IOP_WORDS), .VIRTIO(VIRTIO),
+		.FB(FB), .FB_AT(FB_AT),
 		.CACHE_KB(32),
 		.ROM_WORDS(ROM_WORDS),
 		.ROM_HEX(ROM_HEX),
@@ -341,6 +353,7 @@ module kakao_top #(
 `endif
 	) soc (
 		.clk(clk), .rst(rst),
+		.fb_stb_o(fb_stb), .fb_adr_o(fb_adr), .fb_ack_i(fb_ack), .fb_dat_i(fb_dat),
 		.mem_adr_o(mem_adr), .mem_dat_o(mem_dat_w), .mem_dat_i(mem_dat_r),
 		.mem_we_o(mem_we), .mem_sel_o(mem_sel), .mem_stb_o(mem_stb), .mem_ack_i(mem_ack),
 		.reg_adr_o(reg_adr), .reg_dat_o(reg_dat_w), .reg_dat_i(reg_dat_r),
@@ -407,11 +420,22 @@ module kakao_top #(
 
 `else
 
+	// with a framebuffer the controller is the SOC's own copy of
+	// Zeitlos's (rtl/mem/k_ddr3.v), which has a port for the scan-out
+`ifdef K_FB
+	k_ddr3 #(
+		.ROW_BITS(15),
+		.TRFC_NS(260),
+		.WCOMBINE(KCACHE)
+	) ddr3_i (
+		.fb_stb_i(fb_stb), .fb_adr_i(fb_adr), .fb_ack_o(fb_ack), .fb_dat_o(fb_dat),
+`else
 	ddr3 #(
 		.ROW_BITS(15),
 		.TRFC_NS(260),
 		.WCOMBINE(KCACHE)
 	) ddr3_i (
+`endif
 		.clk_i(clk),
 		.rst_i(rst),
 		.eclk_i(eclk),

@@ -61,7 +61,16 @@
 
 module k_cache #(
 	parameter I_KB = 16,
-	parameter D_KB = 16
+	parameter D_KB = 16,
+	// A framebuffer's window in main memory: the 4 MB whose address
+	// bits 28..22 are FB_AT are not cached. What the CPU stores there
+	// is in memory at once, where the scan-out (k_fb.v) reads it; left
+	// in the data cache it would reach the screen when the line was
+	// next needed for something else, or never. A load from there is a
+	// read of memory each time. (The second port has no business in
+	// the window and is not looked at.)
+	parameter FB = 0,
+	parameter [6:0] FB_AT = 7'h7f
 ) (
 	input         clk,
 	input         rst,
@@ -178,7 +187,8 @@ module k_cache #(
 	// the request, and what the arrays say about it
 	// ------------------------------------------------------------
 
-	wire c_main = (c_adr[31:29] == 3'b100);
+	wire c_fbw  = (FB != 0) && (c_adr[28:22] == FB_AT);
+	wire c_main = (c_adr[31:29] == 3'b100) && !c_fbw;
 	wire c_cfg  = (c_adr[31:8] == 24'h030001);
 	wire r_main = (r_adr[31:29] == 3'b100);
 

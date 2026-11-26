@@ -1,0 +1,11 @@
+bind -a $home/bin/rc /bin
+switch($service){
+case cpu
+	bind /mnt/term/dev/cons /dev/cons
+	bind /mnt/term/dev/consctl /dev/consctl
+	bind -a /mnt/term/dev /dev
+	prompt=('cpu% ' '	')
+	fn cpu%{ $* }
+case con
+	prompt=('cpu% ' '	')
+}

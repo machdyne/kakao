@@ -1,0 +1,5 @@
+echo hello kakao; cat /dev/user; echo; ps
+kknet 10.0.0.2 255.255.255.0; ip/ping -n 3 10.0.0.1
+cat /net/ether0/ifstats
+kkcpu kakaopass1
+cpu -h kakao -c 'echo hello from cpu; cat /dev/user; echo'

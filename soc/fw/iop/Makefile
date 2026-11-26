@@ -13,6 +13,9 @@
 #                 (ext/zeitlos/sw/common/zkbd_layouts.c): the first is
 #                 the one after power-on
 #   BOARD=, CLOCK=, MEMORY=, CPU=   what "About this machine" says
+#   INPUT=1       the keyboard and the mouse are also virtio input
+#                 devices of the host's, in the third and fourth virtio
+#                 slots (vinput.c): the SOC is then built with VIRTIO=4
 #   EXTRA=        more for the compiler (-DVDEBUG: the disk's requests
 #                 are written to the simulation's log)
 #
@@ -39,6 +42,11 @@ CFLAGS = -march=rv32ic -mabi=ilp32 -Os -msave-restore -fno-jump-tables \
 	-DZ_SMALL -DZ_USBH_OWN_PRINTF \
 	'-DK_BOARD="$(BOARD)"' '-DK_CLOCK="$(CLOCK)"' '-DK_MEMORY="$(MEMORY)"' '-DK_CPU="$(CPU)"' $(EXTRA)
 OWN    = main.c term.c kbd.c hud.c mouse.c usbglue.c virtio.c vblk.c sd.c vnet.c nic_rmii.c
+INPUT  ?= 0
+ifeq ($(INPUT),1)
+OWN    += vinput.c
+CFLAGS += -DINPUT
+endif
 THEIRS = $(ZUSB)/usbh.c $(ZUSB)/usbh_hid.c $(ZUSB)/usbh_hub.c
 
 all: iop.hex
@@ -54,7 +62,7 @@ iop-headless.hex: iop-headless.elf
 
 # what was asked for, kept: asked for something else, everything is made
 # again (the boards ask for their own names)
-CONFIG = $(RAM_BYTES) $(LAYOUTS) $(BOARD) $(CLOCK) $(MEMORY) $(CPU) $(EXTRA)
+CONFIG = $(RAM_BYTES) $(LAYOUTS) $(BOARD) $(CLOCK) $(MEMORY) $(CPU) $(EXTRA) $(filter 1,$(INPUT))
 config.stamp: FORCE
 	@echo '$(CONFIG)' | cmp -s - $@ || echo '$(CONFIG)' > $@
 FORCE:

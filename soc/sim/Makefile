@@ -18,7 +18,7 @@ MAX    ?= 4000000000
 Z   = $(CURDIR)/../ext/zeitlos/rtl
 SOCRTL = $(CURDIR)/sim_soc.v $(CURDIR)/../rtl/kakao_soc.v $(CURDIR)/../rtl/k_uart.v $(CURDIR)/../rtl/k_port64.v $(wildcard $(CURDIR)/../rtl/cpu/kakao64/*.v) \
 	$(CURDIR)/../rtl/k_clint.v $(CURDIR)/../rtl/k_plic.v $(CURDIR)/../rtl/k_cache.v $(CURDIR)/../rtl/k_iop.v $(CURDIR)/../rtl/k_vcon.v \
-	$(CURDIR)/../rtl/k_text.v $(CURDIR)/../rtl/k_virtio.v $(CURDIR)/sd_card.v $(CURDIR)/rmii_peer.v $(Z)/spim.v $(Z)/ethmac_rmii.v $(Z)/cpu/picorv32/picorv32.v $(Z)/cache_one.v $(filter-out %/sim_top.v,$(RTL))
+	$(CURDIR)/../rtl/k_text.v $(CURDIR)/../rtl/k_fb.v $(CURDIR)/../rtl/k_virtio.v $(CURDIR)/sd_card.v $(CURDIR)/rmii_peer.v $(Z)/spim.v $(Z)/ethmac_rmii.v $(Z)/cpu/picorv32/picorv32.v $(Z)/cache_one.v $(filter-out %/sim_top.v,$(RTL))
 CROSS ?= riscv64-unknown-elf-
 CACHE_KB ?= 8
 # SOCG: more parameters for sim_soc (-GTERMINAL=1: with the terminal, and
@@ -134,7 +134,27 @@ usb-late:
 		$(Z)/cpu/picorv32/picorv32.v $(USBRTL) $(Z)/tb/tb_usb_device.v
 	vvp -n obj/tb_iop_usb_late | grep -v "^\[\|VCD"
 
-.PHONY: usb usb-late
+# the keyboard and the mouse as the host's virtio input devices (fw/iop
+# with INPUT=1): see tb_iop_input.v
+IOPNM ?= riscv64-unknown-elf-nm
+input:
+	@mkdir -p obj
+	$(MAKE) -C ../fw/iop INPUT=1
+	iverilog -g2005 -P tb_iop_input.EBSS=$$(( 0x$$($(IOPNM) ../fw/iop/iop.elf | awk '/ _ebss$$/ { print $$1 }') )) \
+		-o obj/tb_iop_input -s tb_iop_input tb_iop_input.v ../rtl/k_iop.v ../rtl/k_virtio.v \
+		$(Z)/cpu/picorv32/picorv32.v $(USBRTL) $(Z)/tb/tb_usb_device.v
+	vvp -n obj/tb_iop_input | grep -v "^\[\|VCD"
+
+# the DDR3 controller's port for the framebuffer's scan-out
+# (rtl/mem/k_ddr3_ctrl.v) against Zeitlos's model of the DRAM: see
+# tb_ddr3_fb.v
+ddr3fb:
+	@mkdir -p obj
+	iverilog -g2012 -o obj/tb_ddr3_fb tb_ddr3_fb.v $(Z)/tb/ddr3_model.v $(Z)/tb/ddr3_phy_sim.v \
+		../rtl/mem/k_ddr3_ctrl.v
+	vvp -n obj/tb_ddr3_fb | grep -v "ddr3_model: M\|ZQCL\|banks"
+
+.PHONY: usb usb-late input ddr3fb
 
 # the SOC on Zeitlos's SDRAM controller and its model of the SDRAM,
 # running fw/memtest (Icarus): see tb_soc_sdram.v

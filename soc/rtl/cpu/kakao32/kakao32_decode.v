@@ -111,7 +111,10 @@ module kakao32_decode #(
 	assign is_store  = (opcode == 7'b0100011);
 	assign is_opimm  = (opcode == 7'b0010011);
 	assign is_op     = (opcode == 7'b0110011);
-	assign is_fence  = (opcode == 7'b0001111);
+	// fence (funct3 000) and fence.i (001). The rest of MISC-MEM is not
+	// ours: 010 is cbo.* (Zicbom, Zicboz), and a kernel that tries one to
+	// see whether it is there has to be told that it is not
+	assign is_fence  = (opcode == 7'b0001111) && (funct3[2:1] == 2'b00);
 	assign is_system = (opcode == 7'b1110011);
 	assign is_custom = (opcode == 7'b0001011);
 

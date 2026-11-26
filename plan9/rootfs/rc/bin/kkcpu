@@ -1,0 +1,22 @@
+#!/bin/rc
+# kkcpu password - make this machine a CPU server and the authentication
+# server of the domain kakao, with one user, glenda, whose password is
+# the argument.  After kknet.
+#
+# The users' keys are files in a ramfs (/mnt/keys/glenda/key), written
+# here, where a Plan 9 authentication server keeps them encrypted in
+# auth/keyfs: they are gone with the power, and so is everything else.
+if(! ~ $#* 1){
+	echo 'usage: kkcpu password' >[1=2]
+	exit usage
+}
+if(! test -e /net/cs){
+	echo kkcpu: start the network first: kknet >[1=2]
+	exit 'no network'
+}
+kkkey $1 || exit 'no key'
+mkdir -p /mnt/keys/glenda
+auth/passtokey $1 >/mnt/keys/glenda/key
+echo -n ok >/mnt/keys/glenda/status
+aux/listen -q -d /rc/bin/service -t /rc/bin/service.auth tcp
+echo CPU server: cpu -h `{sed 's/ .*//;1q' /net/ipifc/0/local} -u glenda, from a machine in the domain kakao

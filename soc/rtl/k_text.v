@@ -29,6 +29,9 @@
  *                        are shown so too: what the mouse has selected;
  *                        [31] they are (a cell that is both shows as it
  *                        is, so the pointer is seen within a selection)
+ *   0x20020  GRAPHICS    (with FB) [0] the framebuffer is shown where a
+ *                        terminal would be: under the overlay, and
+ *                        with no cursor, pointer or selection of ours
  *   0x20080 .. 0x200fc   the colours, a word each, 0x00rrggbb: sixteen
  *                        for the cells, then sixteen for the overlay
  *                        (write only; the PC's after reset)
@@ -63,7 +66,9 @@
 
 module k_text #(
 	parameter TERMS    = 1,
-	parameter FONT_HEX = "k_font.hex"
+	parameter FONT_HEX = "k_font.hex",
+	parameter FB       = 0,			// 1: a framebuffer's picture (k_fb.v) can take a terminal's place
+	parameter FB_SHOW  = 0			// ...and does so from reset (a simulation without a keyboard)
 ) (
 	input         clk,
 	input         rst,
@@ -84,7 +89,11 @@ module k_text #(
 	output reg    vsync,
 	output reg    blank,
 	output [10:0] hc,				// where the picture is, for whoever
-	output [10:0] vc				// needs it (not delayed as the pixels are)
+	output [10:0] vc,				// needs it (not delayed as the pixels are)
+	// the framebuffer (FB): whether it is shown (on clk), and its
+	// pixel for the position hc, vc had two cycles ago
+	output        fb_show,
+	input  [23:0] fb_rgb
 );
 
 	localparam NCELL = TERMS * 2400;
@@ -102,9 +111,12 @@ module k_text #(
 	reg [14:0] cursor, start, base, wend;
 	reg [15:0] pointer;
 	reg [31:0] select;
+	reg        gfx;					// the framebuffer is shown
+	assign fb_show = (FB != 0) && gfx;
 
 	wire s_cell = (adr_i[17] == 1'b0);
-	wire s_reg  = (adr_i[17:16] == 2'b10) && !adr_i[7];
+	wire s_reg  = (adr_i[17:16] == 2'b10) && !adr_i[7] && !adr_i[5];
+	wire s_gfx  = (adr_i[17:16] == 2'b10) && !adr_i[7] && adr_i[5];
 	wire s_pal  = (adr_i[17:16] == 2'b10) && adr_i[7];
 	wire s_ovl  = (adr_i[17:16] == 2'b11);
 	wire req    = stb_i && !ack_o;
@@ -159,6 +171,11 @@ module k_text #(
 			3'd6: rd_reg <= { 16'd0, pointer };
 			3'd7: rd_reg <= select;
 		endcase
+		if (s_gfx) rd_reg <= { 31'd0, fb_show };
+		if (rst)
+			gfx <= (FB_SHOW != 0);
+		else if (req && we_i && s_gfx && sel_i[0])
+			gfx <= dat_i[0];
 		if (rst) begin
 			ctrl <= 6'b000000;
 			cursor <= 15'd0;
@@ -198,6 +215,7 @@ module k_text #(
 	reg [14:0] cursor_m, cursor_p, start_m, start_p, base_m, base_p, wend_m, wend_p;
 	reg  [5:0] blink;
 	reg [15:0] pointer_m, pointer_p;
+	reg        gfx_m, gfx_p;
 	reg [31:0] select_m, select_p;
 
 	// where the row of cells being drawn begins, in the screen and in
@@ -222,8 +240,10 @@ module k_text #(
 
 		ctrl_m <= ctrl; cursor_m <= cursor; start_m <= start; base_m <= base; wend_m <= wend;
 		pointer_m <= pointer; select_m <= select;
+		gfx_m <= fb_show;
 		if (h == 0 && v == V_VIS) begin
 			pointer_p <= pointer_m; select_p <= select_m;
+			gfx_p <= gfx_m;
 			ctrl_p <= ctrl_m; cursor_p <= cursor_m; start_p <= start_m;
 			base_p <= base_m; wend_p <= wend_m;
 			frames_p <= frames_p + 8'd1;
@@ -262,6 +282,7 @@ module k_text #(
 	wire dot     = font_q[3'd7 - px2] ^ cur_on ^ inv2;
 	wire [3:0] col = dot ? attr2[3:0] : attr2[7:4];
 	wire [23:0] rgb = pal[{ o2, col }];
+	wire [23:0] out = (gfx_p && !o2) ? fb_rgb : rgb;
 
 	always @(posedge pclk) begin
 		// 0: where we are
@@ -284,9 +305,10 @@ module k_text #(
 		vis1 <= vis0; hs1 <= hs0; vs1 <= vs0;
 
 		// 2: the row of the character is here
-		red   <= (vis1 && ctrl_p[0]) ? rgb[23:16] : 8'd0;
-		green <= (vis1 && ctrl_p[0]) ? rgb[15:8] : 8'd0;
-		blue  <= (vis1 && ctrl_p[0]) ? rgb[7:0] : 8'd0;
+		// (the framebuffer's pixel where the overlay has no cell)
+		red   <= (vis1 && ctrl_p[0]) ? out[23:16] : 8'd0;
+		green <= (vis1 && ctrl_p[0]) ? out[15:8] : 8'd0;
+		blue  <= (vis1 && ctrl_p[0]) ? out[7:0] : 8'd0;
 		blank <= !vis1;
 		hsync <= hs1;
 		vsync <= vs1;

@@ -47,6 +47,8 @@ module sim_soc #(
 `define SIM_SD_MB 16
 `endif
 	parameter SD_MB = `SIM_SD_MB,		// (make ... SOCD=-DSIM_SD_MB=96)
+	parameter FB = 0,				// a framebuffer in the top 4 MB of main memory (with TERMINAL
+								// and KCACHE), shown from reset: +frame= writes the picture out
 	parameter IOP_WORDS = 11264,
 	parameter IOP_HEX = "../fw/iop/iop.hex"	// (without TERMINAL: iop-headless.hex, 2048 words)
 ) (
@@ -64,8 +66,27 @@ module sim_soc #(
 	output       eth_tx_end,
 	input        eth_rx_go,
 	input [11:0] eth_rx_len,
-	output       eth_rx_busy
+	output       eth_rx_busy,
+	// the picture, a pixel every second cycle of clk (the simulation's
+	// pixel clock is half of clk, 24 MHz for the boards' 25)
+	output        vid_pclk,
+	output  [7:0] vid_r,
+	output  [7:0] vid_g,
+	output  [7:0] vid_b,
+	output        vid_hsync,
+	output        vid_vsync,
+	output        vid_blank
 );
+
+	reg pclk = 1'b0;
+	always @(posedge clk) pclk <= !pclk;
+	assign vid_pclk = pclk;
+
+	// main memory's second port, the framebuffer's (below)
+	wire         fb_stb;
+	wire  [24:0] fb_adr;
+	reg          fb_ack;
+	reg  [127:0] fb_dat;
 
 	localparam MEM_WORDS = MEM_MB * 262144;
 
@@ -88,6 +109,7 @@ module sim_soc #(
 		.KCACHE(KCACHE), .I_KB(I_KB), .D_KB(D_KB), .BTFN(BTFN), .FAST_MUL(FAST_MUL), .BTB_BITS(BTB_BITS), .TLB_BITS(TLB_BITS),
 		.CPU64(CPU64), .UART_PIPE(UART_PIPE), .TERMINAL(TERMINAL), .TERMS(TERMS), .HIST(HIST), .IOP_HEX(IOP_HEX), .FONT_HEX("obj/k_font.hex"),
 		.VIRTIO(VIRTIO), .IOP_WORDS(IOP_WORDS),
+		.FB(FB), .FB_AT(MEM_MB / 4 - 1), .FB_SHOW(FB),
 		.CACHE_KB(CACHE_KB),
 		.ROM_HEX(BOOT_HEX),
 		.UART_DIV(2),
@@ -103,7 +125,9 @@ module sim_soc #(
 		.uart0_rx(u_rx), .uart0_tx(u_tx),
 		.con_tx_valid(pp_tx_v), .con_tx_data(), .con_tx_ready(pp_tx_rdy),
 		.con_rx_valid(pp_v), .con_rx_data(pp_d), .con_rx_ready(pp_rdy),
-		.pclk(clk), .vid_r(), .vid_g(), .vid_b(), .vid_hsync(), .vid_vsync(), .vid_blank(),
+		.fb_stb_o(fb_stb), .fb_adr_o(fb_adr), .fb_ack_i(fb_ack), .fb_dat_i(fb_dat),
+		.pclk(pclk), .vid_r(vid_r), .vid_g(vid_g), .vid_b(vid_b),
+		.vid_hsync(vid_hsync), .vid_vsync(vid_vsync), .vid_blank(vid_blank),
 		.iop_trap(iop_trap),
 		.iox_adr_o(iox_adr), .iox_dat_o(iox_dat_w), .iox_dat_i(iox_dat_r),
 		.iox_we_o(iox_we), .iox_sel_o(iox_sel), .iox_stb_o(iox_stb), .iox_ack_i(iox_ack),
@@ -188,6 +212,18 @@ module sim_soc #(
 	reg        m_blk_v;
 	wire       m_same = m_blk_v && (m_blk == mem_adr[26:2]);
 
+	// The framebuffer's port: a block read whole, 13 cycles as the DDR3
+	// controller's (rtl/mem/k_ddr3_ctrl.v) takes with the row's closing, taken
+	// before the CPU's request when both wait, and never in the middle
+	// of an access or of a block's writing. It leaves the block register
+	// alone, so what it reads is memory as it was written: a store
+	// still in the block register reaches the screen a frame later.
+	reg        f_busy;
+	reg  [7:0] f_wait;
+	wire       f_start = fb_stb && !fb_ack && !f_busy && !m_busy && (m_fl == 0);
+	wire [25:0] f_w = { fb_adr[23:0], 2'b00 };
+	reg [63:0] n_fb /*verilator public*/;
+
 	// what main memory was asked, and the cycles it took
 	reg [63:0] n_rd_new /*verilator public*/, n_rd_same /*verilator public*/;
 	reg [63:0] n_wr_new /*verilator public*/, n_wr_same /*verilator public*/;
@@ -246,6 +282,7 @@ module sim_soc #(
 		ext_ack <= 1'b0;
 		if (rst) begin
 			m_busy <= 1'b0;
+			f_busy <= 1'b0; fb_ack <= 1'b0; n_fb <= 0;
 			m_blk_v <= 1'b0;
 			m_dirty <= 1'b0; m_mask <= 0; m_idle <= 0; m_fl <= 0; n_flush <= 0;
 			n_rd_new <= 0; n_rd_same <= 0; n_wr_new <= 0; n_wr_same <= 0; c_rd <= 0; c_wr <= 0;
@@ -263,10 +300,23 @@ module sim_soc #(
 				m_fl <= m_flc; m_dirty <= 1'b0; m_idle <= 0; n_flush <= n_flush + 1;
 			end else m_idle <= m_idle + 4'd1;
 
+			fb_ack <= 1'b0;
+			if (f_start) begin
+				f_busy <= 1'b1; f_wait <= RD_NEW + 2;	// (10 cycles to the data, 3 for the row to close)
+				n_fb <= n_fb + 1;
+			end else if (f_busy) begin
+				if (f_wait != 0) f_wait <= f_wait - 8'd1;
+				else begin
+					f_busy <= 1'b0;
+					fb_ack <= 1'b1;
+					fb_dat <= { ram[f_w + 26'd3], ram[f_w + 26'd2], ram[f_w + 26'd1], ram[f_w] };
+				end
+			end
+
 			if (mem_stb && !mem_ack) begin
 				if (mem_we) c_wr <= c_wr + 1; else c_rd <= c_rd + 1;
-				if (m_fl != 0) begin
-					// still writing
+				if (m_fl != 0 || f_busy || (f_start && !m_busy)) begin
+					// still writing, or the framebuffer's block is being read
 				end else if (!m_busy) begin
 					m_busy <= 1'b1;
 					if (mem_we) begin if (m_same) n_wr_same <= n_wr_same + 1; else n_wr_new <= n_wr_new + 1; end

@@ -1,0 +1,52 @@
+#!/bin/rc
+# kknet [-n name] [-a authserver] [address mask [gateway]] - start the
+# network: by DHCP without an address.  Writes /lib/ndb/local for this
+# machine in the authentication domain kakao, whose server is this
+# machine unless -a names another, and starts the connection server.
+# -n names the machine (kakao until then).
+rfork e
+auth=()
+while(~ $1 -a -n){
+	switch($1){
+	case -a
+		auth=$2
+	case -n
+		echo -n $2 >/dev/sysname
+	}
+	shift; shift
+}
+switch($#*){
+case 0
+	ip/ipconfig
+case 2
+	ip/ipconfig ether /net/ether0 $1 $2
+case 3
+	ip/ipconfig -g $3 ether /net/ether0 $1 $2
+case *
+	echo 'usage: kknet [-n name] [-a authserver] [address mask [gateway]]' >[1=2]
+	exit usage
+}
+sleep 1
+ip=`{sed 's/ .*//;1q' /net/ipifc/0/local}
+if(~ $#ip 0 || ~ $ip 0.0.0.0 ::){
+	echo kknet: no address >[1=2]
+	exit 'no address'
+}
+if(~ $#auth 0)
+	auth=$ip
+sysname=`{cat /dev/sysname}
+{
+	echo 'database='
+	echo '	file=/lib/ndb/local'
+	echo '	file=/lib/ndb/common'
+	echo
+	echo 'authdom=kakao auth='$auth
+	echo
+	echo 'ip='$ip' sys='$sysname
+	echo 'ip=127.0.0.1 sys=localhost dom=localhost'
+} >/lib/ndb/local
+if(! test -e /srv/cs)
+	ndb/cs
+if(! test -e /net/cs)
+	mount -a /srv/cs /net
+echo $sysname is $ip, authentication server $auth

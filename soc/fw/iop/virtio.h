@@ -28,6 +28,11 @@ struct vdev {
 	uint16_t qmax;				/* descriptors a queue of its can have: a power of two */
 	const uint32_t *cfg;		/* its configuration, cfg_words words */
 	uint8_t  cfg_words;
+	/* ...or, for a device whose configuration answers what is written
+	   to it (vinput.c): the word at off, and a write of the byte lanes
+	   in sel (bit 0 the lowest byte) */
+	uint32_t (*cfg_read)(struct vdev *d, uint32_t off);
+	void (*cfg_write)(struct vdev *d, uint32_t off, uint32_t v, uint32_t sel);
 	void (*start)(struct vdev *d);		/* the host looks at the slot for the first time */
 	void (*reset)(struct vdev *d);
 	struct vq q[VQ_N];
@@ -61,5 +66,9 @@ void vblk_poll(void);
 /* vnet.c: the network */
 void vnet_init(void);
 void vnet_poll(void);
+
+/* vinput.c (INPUT): the USB keyboard and mouse as devices of the host's */
+void vinput_init(void);
+void vinput_poll(void);
 
 #endif

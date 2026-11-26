@@ -1,0 +1,9 @@
+#!/bin/rc
+# read suitable $ARCH/defs
+# (changed for the hosted build: there is no /env to look in)
+if (~ $#ARCH 0)
+	ARCH=''			# avoid null list with $ARCH
+if (test -r ./$ARCH/defs)
+	cat ./$ARCH/defs
+if not
+	echo

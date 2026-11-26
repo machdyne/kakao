@@ -30,6 +30,12 @@
 #   USB=0         no USB host: the terminal without a keyboard
 #   VIRTIO=n      virtio slots (2: the SD card as a disk and the network;
 #                 0: none, and without a terminal no I/O processor)
+#   INPUT=1       the USB keyboard and mouse are also virtio input devices
+#   FB=1          a framebuffer in main memory, shown by Super+0 (DDR3 boards)
+#                 of the host's (fw/iop/vinput.c), theirs while the
+#                 graphics screen is chosen (Super with 0): four virtio
+#                 slots. With a terminal and USB only. (It fills the I/O
+#                 processor's memory to its last 48 bytes.)
 #   I_KB=, D_KB=  the caches' sizes
 #   TLB_BITS=n    the TLB has 2^n entries
 #   FAST_MUL=0    the multiplier a bit a step instead of in DSP blocks
@@ -226,6 +232,24 @@ else
   KERN_AT = 0x80000000
   ISA     = rv32ima
 endif
+# INPUT=1: the keyboard and the mouse as the host's own devices too
+INPUT ?= 0
+ifeq ($(INPUT),1)
+  ifeq ($(TERMINAL)$(USB),11)
+    override VIRTIO = 4
+  else
+    override INPUT = 0
+  endif
+endif
+# FB=1: a framebuffer in the top 4 MB of main memory (640 by 480; the
+# terminal's Super+0 shows it), for a system that draws: Plan 9's rio.
+# With DDR3 memory, the terminal and k_cache only.
+FB ?= 0
+ifeq ($(FB),1)
+  ifneq ($(MEM)$(TERMINAL)$(KCACHE),ddr311)
+    override FB = 0
+  endif
+endif
 IOP_WORDS ?= 11264
 # frames the Ethernet MAC holds until the I/O processor takes them (2 or
 # 4: a block RAM each)
@@ -246,7 +270,11 @@ RTL = $(CURDIR)/kakao_top.v $(R)/kakao_soc.v $(R)/k_uart.v $(R)/k_vcon.v $(R)/k_
 	$(R)/k_cache.v $(R)/k_iop.v $(R)/k_text.v $(R)/k_virtio.v \
 	$(Z)/cpu/picorv32/picorv32.v $(Z)/cache_one.v $(Z)/spim.v $(CPU)
 DEFS = -DSYNTHESIS -DFPGA_ECP5 -DOSC48
-ifeq ($(MEM),ddr3)
+ifeq ($(MEM)$(FB),ddr31)
+  RTL  += $(R)/mem/k_ddr3.v $(R)/mem/k_ddr3_ctrl.v $(R)/k_fb.v $(Z)/mem/ddr3_phy_ecp5.v $(Z)/mem/ddr3_rdasm.v \
+	$(Z)/mem/ddr3_clk.v $(Z)/mem/ddr3_phy_init.v $(Z)/clk/pll2.v
+  DEFS += -DK_MEM_DDR3 -DK_FB
+else ifeq ($(MEM),ddr3)
   RTL  += $(Z)/mem/ddr3.v $(Z)/mem/ddr3_ctrl.v $(Z)/mem/ddr3_phy_ecp5.v $(Z)/mem/ddr3_rdasm.v \
 	$(Z)/mem/ddr3_clk.v $(Z)/mem/ddr3_phy_init.v $(Z)/clk/pll2.v
   DEFS += -DK_MEM_DDR3
@@ -291,7 +319,8 @@ endif
 PARAMS = -chparam KCACHE $(KCACHE) -chparam I_KB $(I_KB) -chparam D_KB $(D_KB) \
 	-chparam BTFN $(BTFN) -chparam TLB_BITS $(TLB_BITS) -chparam FAST_MUL $(FAST_MUL) \
 	-chparam TERMINAL $(TERMINAL) -chparam TERMS $(TERMS) -chparam HIST $(HIST) -chparam USB $(USB) \
-	-chparam IOP_WORDS $(IOP_WORDS) -chparam VIRTIO $(VIRTIO)
+	-chparam IOP_WORDS $(IOP_WORDS) -chparam VIRTIO $(VIRTIO) \
+	-chparam FB $(FB) -chparam FB_AT $$(( $(MEM_MB) / 4 - 1 ))
 
 all: $(B)/kakao.bit card
 card: $(B)/kakao.dtb $(B)/boot.json
@@ -324,7 +353,7 @@ $(KB)/$(ROM).0.hex: FORCE
 $(IOP)/iop-headless.hex: FORCE
 	$(MAKE) -C $(IOP) iop-headless.hex HRAM_BYTES=$$(( $(IOP_WORDS) * 4 ))
 $(IOP)/iop.hex: FORCE
-	$(MAKE) -C $(IOP) BOARD="$(NAME)" CLOCK="48 MHz" MEMORY="$(MEMORY)" $(if $(filter 1,$(CPU64)),CPU="kakao64$(comma) RV64IMAFDC") RAM_BYTES=$$(( $(IOP_WORDS) * 4 )) $(if $(LAYOUTS),LAYOUTS="$(LAYOUTS)")
+	$(MAKE) -C $(IOP) BOARD="$(NAME)" CLOCK="48 MHz" MEMORY="$(MEMORY)" $(if $(filter 1,$(CPU64)),CPU="kakao64$(comma) RV64IMAFDC") RAM_BYTES=$$(( $(IOP_WORDS) * 4 )) $(if $(LAYOUTS),LAYOUTS="$(LAYOUTS)") INPUT=$(INPUT)
 $(IOP)/k_font.hex: $(SOC)/tools/mkfont.py
 	python3 $(SOC)/tools/mkfont.py $(SOC)/ext/zeitlos/sw/data/font/font16.mem $@
 FORCE:
@@ -391,10 +420,10 @@ $(B)/kakao.dtb: $(SOC)/tools/mkdts.py Makefile
 	@mkdir -p $(B)
 ifeq ($(CPU64),1)
 	python3 $(SOC)/tools/mkdts.py --model "Kakao SOC, $(NAME), kakao64" --mem $(MEM_MB) --consoles $(TERMS) --virtio $(VIRTIO) \
-		--isa $(ISA) --bootargs "$(BOOTARGS)" > $(B)/kakao.dts
+		--isa $(ISA) --bootargs "$(BOOTARGS)" $(if $(filter 1,$(FB)),--fb) > $(B)/kakao.dts
 else
 	python3 $(SOC)/tools/mkdts.py --model "Kakao SOC, $(NAME)" --mem $(MEM_MB) --consoles $(TERMS) --virtio $(VIRTIO) \
-		--initrd $(INITRD) $$(printf '0x%x' $$(( $(INITRD) + 0x800000 ))) > $(B)/kakao.dts
+		--initrd $(INITRD) $$(printf '0x%x' $$(( $(INITRD) + 0x800000 ))) $(if $(filter 1,$(FB)),--fb) > $(B)/kakao.dts
 endif
 	dtc -q -I dts -O dtb -o $@ $(B)/kakao.dts
 

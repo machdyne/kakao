@@ -1,0 +1,13 @@
+#!/bin/rc
+# kkriostart - what rio starts with: the load, a clock and a shell,
+# laid out for the screen there is (kkrio says how wide)
+if(~ $#kkwidth 1 && test $kkwidth -ge 1024){
+	window -r 734 10 1014 150 stats -lmisce
+	window -r 874 160 1014 300 clock
+	window -r 10 10 724 500
+}
+if not{
+	window -r 500 10 630 110 stats -lmisce
+	window -r 500 120 630 250 clock
+	window -r 10 10 490 470
+}

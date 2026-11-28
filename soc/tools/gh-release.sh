@@ -40,6 +40,8 @@ if ! git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
 fi
 git push origin "refs/tags/$TAG"
 
-files=$(cd "$out" && ls kakao-* THIRD-PARTY.txt MANIFEST.json SUMMARY.md SHA256SUMS)
-(cd "$out" && gh release create "$TAG" $DRAFT --verify-tag --title "Kakao $TAG" --notes-file SUMMARY.md $files)
+# gh runs here, in the repository, so it knows which GitHub repository
+# this is; the files are given by path (each is named after its file).
+files=$(cd "$out" && ls kakao-* THIRD-PARTY.txt MANIFEST.json SUMMARY.md SHA256SUMS | sed "s|^|$out/|")
+gh release create "$TAG" $DRAFT --verify-tag --title "Kakao $TAG" --notes-file "$out/SUMMARY.md" $files
 echo "gh-release: published $TAG${DRAFT:+ (draft)}"

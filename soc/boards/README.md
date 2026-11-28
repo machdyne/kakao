@@ -215,35 +215,28 @@ ports changes, a note at the top right says what is there.
 ## A release
 
 ```
-make release
-sudo sh ../tools/release.sh -n
+make release RELEASE="-t v0.1"
 ```
 
-The first (`../tools/release.sh`) builds every board with kakao32, and
-those it is for with kakao64, each placed with several seeds, and packs
-for each the bitstream with its card's files, into `build/release`.
-The second places nothing and packs again as root, which adds for
-Debian the whole card as an image (the files in it have owners, so
-that part needs root; the bitstreams do not). `SUMMARY.md` there lists
-what was made, how fast each placed and which boards have been run.
-`-v` names the version, which is otherwise the year and month, and
-boards named after the options are the only ones done.
+`../tools/release.sh` builds every board with kakao32 (Kakao Linux), and
+the 45F boards with 512 MB with kakao64 for Kakao Plan 9, each placed
+with several seeds, and packs for each the bitstream and its card's
+files, with names that stay the same from one release to the next, into
+`build/release`. `SUMMARY.md` there lists what was made, how fast each
+placed and which boards have been run. Boards named after the options
+are the only ones done; `-D` adds Kakao Linux (Debian) as before. How to
+publish it on GitHub, or have GitHub build it:
+[../docs/releases.md](../docs/releases.md).
 
 Nothing else has to be built or found first. OpenSBI, the kernels and
 the busybox are in [`images/soc`](../../images/soc/README.md),
 prebuilt, and they are the files that have been run on a board;
 `../tools/mkimages.sh` builds them again from source, which is wanted
 only after a change to a kernel configuration or to OpenSBI's patch.
-Kakao's root file system is `images/rootfs.cpio`, and Debian's is
-fetched from Debian's official images the first time, into
-`build/debian`. `-i <directory>` takes other files than these.
-
-Which boards kakao64 is for, and which have been run, are `BOARDS64`
-and `TESTED` in the Makefile.
-
----
-
-# Details
+Kakao's root file system is `images/rootfs.cpio`; the Plan 9 kernel is
+built in `plan9/` the first time; Debian's is fetched from Debian's
+official images, into `build/debian`. `-i <directory>` takes other files
+than these.
 
 ## What a board gets
 
@@ -310,7 +303,9 @@ of four, and every board met 48 MHz with the first seed tried.
 With kakao64 the Sergei ML2 is 65% full and has less room: 49.61 MHz
 with seed 2, and other seeds have given 45 to 50
 ([../docs/kakao64.md](../docs/kakao64.md)). `tools/release.sh` tries
-seed 2 first.
+seed 2 first. Built for Plan 9 (`INPUT=1 FB=1`, with yosys 0.69 and
+nextpnr 0.11.1) seed 2 gave 45.26 MHz and seed 1 48.69 MHz, so the
+release needs all its seeds there: leave out `-f` only if time is short.
 
 `make BOARD=sergei_ml2 kakao64-bare` places kakao64 alone, for its size
 and clock. `sergei_ml2/` has a CPU's first test on a board

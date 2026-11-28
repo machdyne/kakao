@@ -1,0 +1,48 @@
+What a Kakao release holds besides Kakao's own work, and under which licence
+===========================================================================
+
+Kakao's own work (the SOC, kboot, the I/O processor's firmware, the
+tools, the card's lists) is under the licence in this repository's
+LICENSE file. The bitstreams contain parts from Zeitlos (soc/ext/zeitlos),
+under Zeitlos's licence, as that directory says.
+
+Kakao Linux: sys/linux/ on the card
+-----------------------------------
+
+fw_jump.bin    OpenSBI 1.9, generic platform. BSD 2-Clause.
+               github.com/riscv-software-src/opensbi
+Image          Linux 6.6.18, configured with
+               buildroot/board/kakao_soc/linux.config. GPL version 2.
+               git.kernel.org (also github.com/gregkh/linux), tag v6.6.18
+rootfs.cpio    The root file system, built with Buildroot from
+               buildroot/configs/ in this repository (see its README):
+               BusyBox (GPL version 2) and the other packages that
+               configuration selects, each under its own licence.
+
+Kakao Plan 9: sys/plan9/ on the card
+------------------------------------
+
+9kkcpu.bin     Plan 9 from Bell Labs, the 9k kernel for RISC-V by Geoff
+               Collyer and Richard Miller, with Kakao's configuration
+               (plan9/ in this repository), and its root file system.
+               MIT licence (Copyright 2021 Plan 9 Foundation): the
+               LICENSE and NOTICE in plan9/upstream/dist.9k-rv.tgz.
+               The Plan 9 Foundation's tree: github.com/plan9foundation/plan9
+fw_jump.bin    OpenSBI 1.9 for RV64, with soc/fw/opensbi's patch.
+               BSD 2-Clause.
+
+Sources of the GPL programs
+---------------------------
+
+The GPL programs above (the Linux kernel, BusyBox and the other GPL
+packages of the root file system) are built from unmodified upstream
+sources, except as this repository's buildroot/ and soc/fw/ directories
+say, with the configurations in this repository. soc/tools/mkimages.sh
+and Buildroot (with buildroot/configs/) fetch and build them again.
+
+Written offer: for three years from the date of a Kakao release, Lone
+Dynamics Corporation will give anyone who asks the complete
+corresponding source code of the GPL programs in that release, on a
+medium customarily used for software interchange, for no more than the
+cost of making and sending it. Ask through
+https://github.com/machdyne/kakao (an issue), naming the release's tag.

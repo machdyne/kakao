@@ -359,11 +359,15 @@ $(IOP)/k_font.hex: $(SOC)/tools/mkfont.py
 FORCE:
 
 # (synthesis runs in kboot's directory: the block RAMs' contents are read
-# from there and from ../iop)
+# from there and from ../iop. The design goes through RTLIL before
+# synth_ecp5, as Zeitlos and machllm do for the DDR3 boards: newer Yosys
+# (0.69) otherwise elaborates the top again late, and loses gpu_ddmi.)
 $(B)/kakao.json: $(RTL) $(KB)/$(ROM).0.hex $(IOP)/iop$(if $(HEADLESS),-headless).hex $(IOP)/k_font.hex
 	@mkdir -p $(B)
 	cd $(KB) && $(YOSYS) -q -l $(CURDIR)/$(B)/synth.log \
-		-p "read_verilog -defer $(DEFS) $(RTL); hierarchy -top kakao_top $(PARAMS); synth_ecp5 -abc9 -top kakao_top -json $(CURDIR)/$@"
+		-p "read_verilog -defer $(DEFS) $(RTL); hierarchy -top kakao_top $(PARAMS); \
+		    write_rtlil $(CURDIR)/$(B)/elab.il; design -reset; read_rtlil $(CURDIR)/$(B)/elab.il; \
+		    synth_ecp5 -abc9 -top kakao_top -json $(CURDIR)/$@"
 
 # The placer is told to weigh timing more than it does by itself: the
 # design's longest paths are mostly wire, and with this the same seeds

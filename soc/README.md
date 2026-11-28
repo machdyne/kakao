@@ -94,6 +94,7 @@ goes on the SD card and how a release is made.
 |---|---|
 | [boards/README.md](boards/README.md) | the boards, building, the SD card, releases |
 | [docs/debian.md](docs/debian.md) | Kakao Linux (Debian): the card, its two ways to boot |
+| [docs/releases.md](docs/releases.md) | making and publishing a release: what is in one, by GitHub or by hand |
 | [docs/design.md](docs/design.md) | the machine: memory map, the cache, the terminals, the disk and the network |
 | [docs/kakao32.md](docs/kakao32.md), [docs/kakao64.md](docs/kakao64.md) | the CPUs |
 | [sim/README.md](sim/README.md) | Linux under Verilator |

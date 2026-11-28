@@ -1,0 +1,78 @@
+# A release, built by GitHub when a tag is pushed (soc/docs/releases.md).
+# The Plan 9 kernel is one job, each board another (a job may run up to
+# six hours), and the last puts them together and publishes. A board that
+# fails or times out stops the publishing: then make this tag's release
+# on a computer of your own (soc/docs/releases.md, B).
+name: release
+on:
+  push:
+    tags: ["*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "the tag to build (it must exist)"
+        required: true
+permissions:
+  contents: write
+env:
+  TAG: ${{ github.event.inputs.tag || github.ref_name }}
+  OSS_CAD: https://github.com/YosysHQ/oss-cad-suite-build/releases/download/2026-10-01/oss-cad-suite-linux-x64-20261001.tgz
+jobs:
+  plan9:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - run: sudo apt-get update && sudo apt-get install -y gcc-multilib bubblewrap
+      - run: make -C plan9
+      - uses: actions/upload-artifact@v4
+        with:
+          name: plan9-kernel
+          path: plan9/build/9kkcpu.bin
+  board:
+    needs: plan9
+    strategy:
+      fail-fast: false
+      matrix:
+        board: [sergei_ml2, mozart_ml2, sergei_ml1, mozart_ml1, sergei_ml0, mozart_ml0, lakritz, konfekt]
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+          fetch-depth: 0
+          submodules: recursive
+      - run: sudo apt-get update && sudo apt-get install -y gcc-riscv64-unknown-elf device-tree-compiler zip cpio python3
+      - run: curl -sSL -o /tmp/oss.tgz "$OSS_CAD" && tar -C /tmp -xzf /tmp/oss.tgz
+      - uses: actions/download-artifact@v4
+        with:
+          name: plan9-kernel
+          path: /tmp/plan9
+      - run: |
+          cp -r images/soc /tmp/in
+          mkdir -p /tmp/in/plan9 && cp /tmp/plan9/9kkcpu.bin /tmp/in/plan9/
+          PATH=/tmp/oss-cad-suite/bin:$PATH sh soc/tools/release.sh -t "$TAG" -i /tmp/in -o /tmp/out/${{ matrix.board }} ${{ matrix.board }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: board-${{ matrix.board }}
+          path: /tmp/out/${{ matrix.board }}
+  publish:
+    needs: board
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: board-*
+          path: /tmp/boards
+      - run: python3 soc/tools/release-merge.py /tmp/release /tmp/boards/board-*
+      - run: sh soc/tools/gh-release.sh "$TAG" -o /tmp/release
+        env:
+          GH_TOKEN: ${{ github.token }}

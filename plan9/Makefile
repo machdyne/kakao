@@ -90,13 +90,13 @@ $(P9P)/.built: $(P9P)/.fetched
 $(P9P32)/.built: $(P9P)/.built
 	rm -rf $(P9P32) && mkdir -p $(P9P32)/lib
 	cd $(P9P) && tar cf - --exclude='*.o' --exclude='*.a' --exclude='o.*' \
-		bin/9c bin/9l bin/9ar bin/9a include src/lib9 src/libbio \
+		bin/9c bin/9l bin/9ar include src/lib9 src/libbio \
 		src/mkhdr src/mksyslib src/mkmk.sh src/mklib src/mkcommon \
 		src/mkdirs src/mkone src/mkmany config | (cd $(CURDIR)/$(P9P32) && tar xf -)
 	for l in lib9 libbio; do \
 		(cd $(P9P32)/src/$$l && PLAN9=$(CURDIR)/$(P9P32) \
 		 PATH=$(CURDIR)/$(P9P32)/bin:$(CURDIR)/$(P9P)/bin:$$PATH \
-		 OBJTYPE=386 CC9='gcc -m32' mk install) > $(B)/p9p32.$$l.log 2>&1 || \
+		 OBJTYPE=386 CC9='gcc -m32 -std=gnu17' mk install) > $(B)/p9p32.$$l.log 2>&1 || \
 		{ tail -5 $(B)/p9p32.$$l.log; exit 1; }; \
 	done
 	touch $@

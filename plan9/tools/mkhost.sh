@@ -44,7 +44,7 @@ sed -i -E 's/\buintptr\b/ulong/g' "$OUT/cc/compat.c" "$OUT/il/compat.c"
 sed -i 's/USED(v, pc);/USED(v); USED(pc);/' "$OUT/il/compat.c"
 
 hcc() {	# compile one file of Plan 9 C for the host
-	gcc -m32 -c -O1 -fcommon -fno-builtin -fno-strict-aliasing -fwrapv -w \
+	gcc -m32 -std=gnu17 -c -O1 -fcommon -fno-builtin -fno-strict-aliasing -fwrapv -w \
 		-DRunemask=0x1FFFFF -I. "$@" -I"$P9P32/include"
 }
 hld() {	# link: hld target objects...

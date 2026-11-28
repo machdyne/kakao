@@ -19,13 +19,14 @@ env:
   OSS_CAD: https://github.com/YosysHQ/oss-cad-suite-build/releases/download/2026-10-01/oss-cad-suite-linux-x64-20261001.tgz
 jobs:
   plan9:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ env.TAG }}
       - run: sudo apt-get update && sudo apt-get install -y gcc-multilib bubblewrap
+      - run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0   # for bubblewrap
       - run: make -C plan9
       - uses: actions/upload-artifact@v4
         with:
@@ -37,7 +38,7 @@ jobs:
       fail-fast: false
       matrix:
         board: [sergei_ml2, mozart_ml2, sergei_ml1, mozart_ml1, sergei_ml0, mozart_ml0, lakritz, konfekt]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 350
     steps:
       - uses: actions/checkout@v4
@@ -62,7 +63,7 @@ jobs:
           path: /tmp/out/${{ matrix.board }}
   publish:
     needs: board
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
         with:
